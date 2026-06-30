@@ -5,10 +5,8 @@ __pycache__/
 venv/
 env/
 
-# Full-resolution dataset is large — not committed. See DEPLOY.md / README to
-# fetch or regenerate a compact training set. The app ships a trained model
-# (leaf_cnn/) so it runs without the raw data.
-data/
+# Pending active-learning candidates are tracked in git on the `contributions`
+# branch only — never on main locally during dev.
 
 # Scratch / runtime
 _online/

@@ -80,14 +80,15 @@ The key is read from the env var / secret only — never commit it.
 
 ## Publishing a clean repo (one-time, if starting fresh)
 
-The raw `data/` folder (2 GB of `.tif` scans) and any bloated git history
-should not go to GitHub:
+A compact, compressed `data/` (~41 MB, all 15 classes, via
+`scripts/compress_dataset.py`) is committed to the repo — this is required for
+the weekly self-retraining workflow (see `docs/ARCHITECTURE.md`'s
+"Active Learning & Self-Retraining" section) to have anything to train from.
+If you're re-fetching the raw dataset locally, re-run the compression before
+committing:
 
 ```bash
-# (optional) make a compact, committable dataset so retrain works after cloning
-python scripts/compress_dataset.py      # ~2 GB -> ~10 MB
-#   then delete the "data/" line from .gitignore if you want it committed
-
+python scripts/compress_dataset.py      # ~2 GB raw -> ~41 MB compact, in place
 git add -A
 git commit -m "..."
 git push
