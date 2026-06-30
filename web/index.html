@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="description" content="Plantify is a machine learning project for plant leaf analysis. This site is a showcase for its trained ML capabilities, starting with species identification.">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <title>Plantify - ML-powered plant leaf analysis</title>
+
+    <link rel="icon" href="img/core-img/favicon.ico">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="css/site-overrides.css">
+</head>
+
+<body data-page="home">
+    <div id="partial-header"></div>
+
+    <section class="hero-area">
+        <div class="hero-post-slides owl-carousel">
+            <div class="single-hero-post bg-overlay">
+                <div class="slide-img bg-img" style="background-image: url(img/bg-img/1.jpg);"></div>
+                <div class="container h-100">
+                    <div class="row h-100 align-items-center">
+                        <div class="col-12">
+                            <div class="hero-slides-content text-center">
+                                <h2>An ML project for plant leaf analysis</h2>
+                                <p>This site showcases Plantify's trained models. First up: upload a leaf photo
+                                    and a CNN classifier identifies the species in seconds, with an honest
+                                    "I'm not sure" when it's out of its depth.</p>
+                                <div class="welcome-btn-group">
+                                    <a href="identify.html" class="btn alazea-btn active">Try the ML Demo</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    <!-- Area End -->
+
+    <section class="our-services-area bg-gray section-padding-100-0">
+        <div class="container">
+            <div class="row">
+                <div class="col-12">
+                    <div class="section-heading text-center">
+                        <h2>ML CAPABILITIES</h2>
+                        <p>Each capability below is a trained model, served by the API, demoed here.
+                            Species identification is live today — this layout exists to grow.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row justify-content-center">
+                <div class="col-12 col-lg-8">
+                    <div class="alazea-service-area mb-100">
+
+                        <div class="single-service-area d-flex align-items-center wow fadeInUp" data-wow-delay="100ms">
+                            <div class="service-icon mr-30">
+                                <img src="img/core-img/s1.png" alt="">
+                            </div>
+                            <div class="service-content">
+                                <h5>Species Identification</h5>
+                                <p>Recognizes 15 species from the Swedish Leaf Dataset using a MobileNetV2-based
+                                    classifier, with held-out test accuracy of 99.6%.</p>
+                            </div>
+                        </div>
+
+                        <div class="single-service-area d-flex align-items-center wow fadeInUp" data-wow-delay="300ms">
+                            <div class="service-icon mr-30">
+                                <img src="img/core-img/s2.png" alt="">
+                            </div>
+                            <div class="service-content">
+                                <h5>Instant Results</h5>
+                                <p>Upload a photo and get a prediction back in seconds, served by a lightweight
+                                    FastAPI inference service.</p>
+                            </div>
+                        </div>
+
+                        <div class="single-service-area d-flex align-items-center wow fadeInUp" data-wow-delay="500ms">
+                            <div class="service-icon mr-30">
+                                <img src="img/core-img/s3.png" alt="">
+                            </div>
+                            <div class="service-content">
+                                <h5>Knows Its Limits</h5>
+                                <p>An out-of-distribution guard rejects photos that don't look like a clean leaf
+                                    scan instead of guessing, so low-confidence results say so.</p>
+                            </div>
+                        </div>
+
+                        <div class="single-service-area d-flex align-items-center wow fadeInUp" data-wow-delay="700ms" style="opacity:0.6;">
+                            <div class="service-icon mr-30">
+                                <img src="img/core-img/pot.png" alt="">
+                            </div>
+                            <div class="service-content">
+                                <h5>More Capabilities, Trained Later</h5>
+                                <p>This grid is built to add a new model + page per capability as one gets
+                                    trained — nothing here yet, but the slot's ready.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    <!-- Service End-->
+
+    <!-- About Start -->
+    <section id="about-us" class="about-us-area section-padding-100-0">
+        <div class="container">
+            <div class="row justify-content-between">
+                <div class="col-12 col-lg-5">
+                    <div class="section-heading">
+                        <h2>ABOUT THE PROJECT</h2>
+                        <p>An ML project first — this site is the demo layer.</p>
+                    </div>
+                    <p>Plantify's actual work is the training pipeline and the trained models in
+                        <code>src/plantify/</code> — this website just shows what they can do. Each model
+                        is trained and evaluated with real held-out metrics (see the project's
+                        <a href="blog.html">blog</a> for how identification works), served through one API
+                        endpoint per capability, and demoed on one page per capability, free to try without
+                        an account.</p>
+                </div>
+
+                <div class="col-12 col-lg-6">
+                    <div class="alazea-benefits-area">
+                        <div class="row">
+                            <div class="col-12 col-sm-6">
+                                <div class="single-benefits-area">
+                                    <img src="img/core-img/b1.png" alt="">
+                                    <h5>Accurate</h5>
+                                    <p>99.6% held-out test accuracy across all 15 known species, with a
+                                        confidence floor to avoid false positives.</p>
+                                </div>
+                            </div>
+
+                            <div class="col-12 col-sm-6">
+                                <div class="single-benefits-area">
+                                    <img src="img/core-img/b2.png" alt="">
+                                    <h5>Honest</h5>
+                                    <p>Flags uncertain or out-of-domain photos instead of forcing a guess
+                                        onto one of its known species.</p>
+                                </div>
+                            </div>
+
+                            <div class="col-12 col-sm-6">
+                                <div class="single-benefits-area">
+                                    <img src="img/core-img/b3.png" alt="">
+                                    <h5>Open Source</h5>
+                                    <p>Model, training pipeline, API, and this site are all in the public
+                                        repository — nothing hidden behind a paywall.</p>
+                                </div>
+                            </div>
+
+                            <div class="col-12 col-sm-6">
+                                <div class="single-benefits-area">
+                                    <img src="img/core-img/b4.png" alt="">
+                                    <h5>No Sign-up Required</h5>
+                                    <p>The identify feature works immediately — no account needed to try it.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                <div class="col-12">
+                    <div class="border-line"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+    <!-- ##### About Area End ##### -->
+
+    <div id="partial-footer"></div>
+
+    <script src="js/jquery/jquery-2.2.4.min.js"></script>
+    <script src="js/bootstrap/popper.min.js"></script>
+    <script src="js/bootstrap/bootstrap.min.js"></script>
+    <script src="js/plugins/plugins.js"></script>
+    <script src="js/partials.js"></script>
+    <script src="js/active.js"></script>
+</body>
+</html>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="description" content="How Plantify identifies leaves, photo tips, and the species it knows.">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <title>Plantify - Blog</title>
+
+    <link rel="icon" href="img/core-img/favicon.ico">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="css/site-overrides.css">
+</head>
+
+<body data-page="blog">
+    <div id="partial-header"></div>
+
+    <div class="breadcrumb-area">
+        <div class="top-breadcrumb-area bg-img bg-overlay d-flex align-items-center justify-content-center" style="background-image: url(img/bg-img/24.jpg);">
+            <h2>Blog</h2>
+        </div>
+        <div class="container">
+            <div class="row">
+                <div class="col-12">
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item"><a href="index.html"><i class="fa fa-home"></i> Home</a></li>
+                            <li class="breadcrumb-item active" aria-current="page">Blog</li>
+                        </ol>
+                    </nav>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <section class="alazea-blog-area mb-100">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 col-md-8">
+                    <div class="row">
+
+                        <div class="col-12">
+                            <div class="single-blog-post mb-50">
+                                <div class="post-thumbnail mb-30">
+                                    <img src="img/bg-img/6.jpg" alt="">
+                                </div>
+                                <div class="post-content">
+                                    <span class="post-title"><h5>How Plantify Identifies a Leaf</h5></span>
+                                    <div class="post-meta">
+                                        <a href="#"><i class="fa fa-user" aria-hidden="true"></i> Plantify Team</a>
+                                    </div>
+                                    <p class="post-excerpt">
+                                        Upload a photo and Plantify runs it through a MobileNetV2-based classifier
+                                        trained on 15 leaf species. Before trusting the result, two checks run:
+                                        a quality check that the photo looks like a clean leaf scan, and an
+                                        out-of-distribution check that compares the photo's learned features
+                                        against the training data. Depending on how confident and how
+                                        in-domain the photo is, you'll see one of three outcomes — a confident
+                                        match (<strong>ok</strong>), a possible match worth double-checking
+                                        (<strong>uncertain</strong>), or an honest "couldn't identify this"
+                                        (<strong>unknown</strong>) rather than a guess. Try it on the
+                                        <a href="identify.html">Identify page</a>.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <div class="single-blog-post mb-50">
+                                <div class="post-thumbnail mb-30">
+                                    <img src="img/bg-img/7.jpg" alt="">
+                                </div>
+                                <div class="post-content">
+                                    <span class="post-title"><h5>Getting a Good Photo for Identification</h5></span>
+                                    <div class="post-meta">
+                                        <a href="#"><i class="fa fa-user" aria-hidden="true"></i> Plantify Team</a>
+                                    </div>
+                                    <p class="post-excerpt">
+                                        The model was trained on clean scans of single leaves against a plain,
+                                        near-white background, so it does best with similar photos. A few tips:
+                                        lay the leaf flat on a plain sheet of paper or a light table, fill most
+                                        of the frame with just the one leaf, avoid harsh shadows or background
+                                        clutter, and make sure it's in focus. Busy backgrounds or photos with
+                                        multiple leaves are more likely to come back <strong>uncertain</strong>
+                                        or <strong>unknown</strong> — that's the quality guard doing its job
+                                        instead of guessing.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <div class="single-blog-post mb-50">
+                                <div class="post-thumbnail mb-30">
+                                    <img src="img/bg-img/8.jpg" alt="">
+                                </div>
+                                <div class="post-content">
+                                    <span class="post-title"><h5>The 15 Species Plantify Knows</h5></span>
+                                    <div class="post-meta">
+                                        <a href="#"><i class="fa fa-user" aria-hidden="true"></i> Plantify Team</a>
+                                    </div>
+                                    <p class="post-excerpt">
+                                        Plantify's model is trained on the Swedish Leaf Dataset's 15 species:
+                                        Acer, Alnus incana, Betula pubescens, Fagus silvatica, Populus,
+                                        Populus tremula, Quercus, Salix alba 'Sericea', Salix aurita,
+                                        Salix sinerea, Sorbus aucuparia, Sorbus intermedia, Tilia,
+                                        Ulmus carpinifolia, and Ulmus glabra. A photo of anything outside
+                                        this list — or a low-quality photo of one of these species — should
+                                        come back as <strong>uncertain</strong> or <strong>unknown</strong>
+                                        rather than a confident wrong answer.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="col-12 col-md-4">
+                    <div class="post-sidebar-area">
+
+                        <div class="single-widget-area">
+                            <form action="#" method="get" class="search-form" onsubmit="return false;">
+                                <input type="search" name="search" id="widgetsearch" placeholder="Search...">
+                                <button type="submit"><i class="icon_search"></i></button>
+                            </form>
+                        </div>
+
+                        <div class="single-widget-area">
+                            <div class="widget-title">
+                                <h4>Recent posts</h4>
+                            </div>
+
+                            <div class="single-latest-post d-flex align-items-center">
+                                <div class="post-thumb">
+                                    <img src="img/bg-img/6.jpg" alt="">
+                                </div>
+                                <div class="post-content">
+                                    <span class="post-title"><h6>How Plantify Identifies a Leaf</h6></span>
+                                </div>
+                            </div>
+
+                            <div class="single-latest-post d-flex align-items-center">
+                                <div class="post-thumb">
+                                    <img src="img/bg-img/7.jpg" alt="">
+                                </div>
+                                <div class="post-content">
+                                    <span class="post-title"><h6>Getting a Good Photo for Identification</h6></span>
+                                </div>
+                            </div>
+
+                            <div class="single-latest-post d-flex align-items-center">
+                                <div class="post-thumb">
+                                    <img src="img/bg-img/8.jpg" alt="">
+                                </div>
+                                <div class="post-content">
+                                    <span class="post-title"><h6>The 15 Species Plantify Knows</h6></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="single-widget-area">
+                            <div class="widget-title">
+                                <h4>Tag Cloud</h4>
+                            </div>
+                            <ol class="popular-tags d-flex flex-wrap">
+                                <li><a href="#">IDENTIFICATION</a></li>
+                                <li><a href="#">LEAF CARE</a></li>
+                                <li><a href="#">SPECIES GUIDE</a></li>
+                                <li><a href="#">ML MODEL</a></li>
+                                <li><a href="#">ACCURACY</a></li>
+                            </ol>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div id="partial-footer"></div>
+
+    <script src="js/jquery/jquery-2.2.4.min.js"></script>
+    <script src="js/bootstrap/popper.min.js"></script>
+    <script src="js/bootstrap/bootstrap.min.js"></script>
+    <script src="js/plugins/plugins.js"></script>
+    <script src="js/partials.js"></script>
+    <script src="js/active.js"></script>
+</body>
+</html>
