@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Full-resolution dataset is large — not committed. See DEPLOY.md / README to
+# fetch or regenerate a compact training set. The app ships a trained model
+# (leaf_cnn/) so it runs without the raw data.
+data/
+
+# Scratch / runtime
+_online/
+result.jpg
+*.log
+X_Augumented_Grayscale
+y_Augumented_Grayscale
+logs/
+
+# Secrets (Pl@ntNet API key etc.) — never commit
+.streamlit/secrets.toml
+.env
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Tests and tooling
+.pytest_cache/
