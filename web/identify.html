@@ -22,8 +22,7 @@
         #identify-btn[disabled] { opacity: 0.6; cursor: not-allowed; }
     </style>
 
-    <!-- Edit this line to point at your deployed API for production -->
-    <script>window.PLANTIFY_API_BASE = "http://localhost:8000";</script>
+    <script src="js/config.js"></script>
 </head>
 
 <body data-page="identify">
@@ -91,7 +90,7 @@
                         <h5>Couldn't confidently identify this leaf</h5>
                         <p>This photo doesn't look like a close match for any of the 15 species Plantify
                             knows. Try a clearer photo, or if you're sure this is a real species we're
-                            missing, <a href="https://github.com/ArunKumar-25/Plant-Leaf-Recognition">let us know on GitHub</a>.</p>
+                            missing, <a href="https://github.com/ArunKumar-25/Plantify">let us know on GitHub</a>.</p>
                     </div>
 
                     <div id="result-error" class="result-card error">
