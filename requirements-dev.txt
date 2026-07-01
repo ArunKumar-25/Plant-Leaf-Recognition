@@ -1,3 +1,4 @@
-# Dev-only tooling (linting/formatting). Not needed to run the app.
+# Dev-only tooling (linting/formatting/testing). Not needed to run the app.
 isort==8.0.1
 black==26.5.1
+httpx==0.28.1
