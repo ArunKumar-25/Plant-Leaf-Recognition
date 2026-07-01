@@ -179,6 +179,10 @@ def _maybe_consult_plantnet(temp_path: str, decision: str) -> Dict[str, object] 
     to a daily cap (shared quota with the Streamlit admin tool's manual use).
     Never raises — a Pl@ntNet outage degrades to "no second opinion", not a 500.
     """
+    print(
+        "DEBUG plantnet: decision=%r enabled=%r has_key=%r"
+        % (decision, PLANTNET_PUBLIC_FALLBACK_ENABLED, bool(plantnet_client.get_api_key()))
+    )
     if decision != "unknown" or not PLANTNET_PUBLIC_FALLBACK_ENABLED:
         return None
 
@@ -188,13 +192,16 @@ def _maybe_consult_plantnet(temp_path: str, decision: str) -> Dict[str, object] 
         _plantnet_call_date = today
         _plantnet_call_count = 0
     if _plantnet_call_count >= PLANTNET_DAILY_CAP:
+        print("DEBUG plantnet: daily cap hit (%d/%d)" % (_plantnet_call_count, PLANTNET_DAILY_CAP))
         return None
     _plantnet_call_count += 1
 
     try:
         result = plantnet_client.identify(temp_path)
-    except Exception:
+    except Exception as exc:
+        print("DEBUG plantnet: identify() raised %r" % exc)
         return None
+    print("DEBUG plantnet: raw result=%r" % result)
     if result.get("error") or not result.get("results"):
         return None
     return result["results"][0]
