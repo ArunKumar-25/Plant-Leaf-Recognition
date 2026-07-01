@@ -16,7 +16,7 @@ import tensorflow as tf
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from tensorflow.keras import Input, Model, Sequential
 from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.layers import (
     Dense,
     Dropout,
@@ -46,8 +46,13 @@ tf.random.set_seed(SEED)
 # and the learning rate to unfreeze them at. Kept low/shallow since the
 # training set is small (~750 images) — fine-tuning the whole backbone on
 # that little data would overfit fast.
-FINE_TUNE_LAYER_FRACTION = 0.2
+FINE_TUNE_LAYER_FRACTION = 0.35
 FINE_TUNE_LR = 1e-5
+
+# MobileNetV2 width multiplier -- named here (not just passed inline) so the
+# metrics report's backbone description can't drift out of sync with the
+# actual value used to build the model.
+BACKBONE_ALPHA = 1.0
 
 
 def _load_folder(folder: str) -> List[np.ndarray]:
@@ -140,7 +145,10 @@ def train_and_evaluate(use_augmentation: bool = True, use_fine_tune: bool = True
 
     base = MobileNetV2(
         input_shape=(IMG_SIZE, IMG_SIZE, 3),
-        alpha=0.5,
+        # Full-width backbone (up from alpha=0.5) -- richer pretrained
+        # ImageNet features to draw from. Low overfitting risk here since
+        # phase 1 keeps it frozen and only the small head trains on it.
+        alpha=BACKBONE_ALPHA,
         include_top=False,
         weights="imagenet",
         pooling="avg",
@@ -151,7 +159,9 @@ def train_and_evaluate(use_augmentation: bool = True, use_fine_tune: bool = True
         [
             Input((base.output_shape[-1],)),
             Dropout(0.3, seed=SEED),
-            Dense(256, activation="relu"),
+            # 384 (up from 256) -- proportionate to alpha=1.0's larger
+            # 1280-dim embedding (vs. 640-dim at the old alpha=0.5).
+            Dense(384, activation="relu"),
             Dropout(0.4, seed=SEED),
             Dense(len(classes), activation="softmax"),
         ]
@@ -177,18 +187,31 @@ def train_and_evaluate(use_augmentation: bool = True, use_fine_tune: bool = True
     infer_model = Model(infer_inputs, head(embedding_output))
     embed_model = Model(infer_inputs, embedding_output)
 
-    val_data = (x_val, y_val) if len(y_val) else None
+    # One-hot only for the loss/fit calls -- label smoothing needs
+    # CategoricalCrossentropy, which requires one-hot targets (sparse
+    # crossentropy has no label_smoothing option in this TF version). The
+    # original index-valued y_train/y_val stay untouched below (OOD bookkeeping
+    # needs class indices, not one-hot vectors).
+    y_train_onehot = tf.keras.utils.to_categorical(y_train, num_classes=len(classes))
+    y_val_onehot = tf.keras.utils.to_categorical(y_val, num_classes=len(classes)) if len(y_val) else None
+    val_data = (x_val, y_val_onehot) if len(y_val) else None
+    loss_fn = tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1)
 
     print("Phase 1: training head with frozen backbone...")
-    train_model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"])
-    callback1 = EarlyStopping(monitor="val_loss" if val_data else "loss", patience=10, restore_best_weights=True)
+    train_model.compile(optimizer="adam", loss=loss_fn, metrics=["accuracy"])
+    monitor1 = "val_loss" if val_data else "loss"
+    callback1 = EarlyStopping(monitor=monitor1, patience=10, restore_best_weights=True)
+    # Halves the LR on a plateau instead of just waiting out patience at a
+    # fixed rate -- smooths convergence, which was showing up as a couple of
+    # classes randomly dipping a bit short of full recall.
+    lr_callback1 = ReduceLROnPlateau(monitor=monitor1, factor=0.5, patience=4, min_lr=1e-6)
     history1 = train_model.fit(
         x_train,
-        y_train,
+        y_train_onehot,
         validation_data=val_data,
         epochs=60,
         batch_size=16,
-        callbacks=[callback1],
+        callbacks=[callback1, lr_callback1],
         verbose=2,
     )
 
@@ -206,17 +229,17 @@ def train_and_evaluate(use_augmentation: bool = True, use_fine_tune: bool = True
         # stats, not batch stats) even now, because the functional graph
         # above calls base(..., training=False) — recompiling just
         # refreshes which weights the optimizer is allowed to touch.
-        train_model.compile(
-            optimizer=Adam(FINE_TUNE_LR), loss="sparse_categorical_crossentropy", metrics=["accuracy"]
-        )
-        callback2 = EarlyStopping(monitor="val_loss" if val_data else "loss", patience=8, restore_best_weights=True)
+        train_model.compile(optimizer=Adam(FINE_TUNE_LR), loss=loss_fn, metrics=["accuracy"])
+        monitor2 = "val_loss" if val_data else "loss"
+        callback2 = EarlyStopping(monitor=monitor2, patience=8, restore_best_weights=True)
+        lr_callback2 = ReduceLROnPlateau(monitor=monitor2, factor=0.5, patience=3, min_lr=1e-7)
         history2 = train_model.fit(
             x_train,
-            y_train,
+            y_train_onehot,
             validation_data=val_data,
             epochs=30,
             batch_size=16,
-            callbacks=[callback2],
+            callbacks=[callback2, lr_callback2],
             verbose=2,
         )
     else:
@@ -304,7 +327,7 @@ def train_and_evaluate(use_augmentation: bool = True, use_fine_tune: bool = True
     plt.savefig(os.path.join(REPORTS_DIR, "confusion_matrix.png"), dpi=120)
     plt.close()
 
-    backbone_desc = "MobileNetV2-alpha0.5"
+    backbone_desc = "MobileNetV2-alpha%g" % BACKBONE_ALPHA
     if use_augmentation:
         backbone_desc += ", augmented"
     if use_fine_tune:

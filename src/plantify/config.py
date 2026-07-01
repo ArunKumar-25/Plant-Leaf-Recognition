@@ -2,7 +2,12 @@
 
 import os
 
-IMG_SIZE = 128
+# 224 -- MobileNetV2's native ImageNet pretraining resolution, so the
+# backbone's pretrained features are used at the scale they were actually
+# learned at (up from 128, then 160, then 192). Still well under the
+# ~700px source images. Centralized here so training and inference
+# (api/main.py) always agree on input shape.
+IMG_SIZE = 224
 ARTIFACTS_DIR = "artifacts"
 MODEL_DIR = "artifacts/model"
 LABELS_FILE = "artifacts/class_labels.json"
