@@ -4,6 +4,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # numpy 2.x breaks tensorflow-cpu==2.15.0 (needs numpy<2.0) -- confirmed
+      # via the numpy-2.2.6 PR failing to resolve. Only bump numpy alongside
+      # a deliberate tensorflow-cpu upgrade, not automatically.
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
