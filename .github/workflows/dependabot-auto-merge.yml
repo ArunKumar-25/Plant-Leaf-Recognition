@@ -28,6 +28,8 @@ jobs:
       # contract -- a "major" actions/checkout bump essentially never breaks
       # actual usage, so always merge those. pip majors are real breakage
       # risk (see the numpy 2.x incident), so skip those for manual review.
+      # GitHub can briefly report a fresh/updated PR as "unstable" while it
+      # finishes computing mergeability -- retry instead of failing outright.
       - name: Enable auto-merge
         if: |
           steps.metadata.outputs.package-ecosystem == 'github_actions' ||
@@ -35,4 +37,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr merge --auto --squash "$PR_URL"
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if gh pr merge --auto --squash "$PR_URL"; then
+              exit 0
+            fi
+            echo "Attempt $attempt failed (likely still computing mergeability) -- retrying in 15s..."
+            sleep 15
+          done
+          echo "Failed to enable auto-merge after 5 attempts."
+          exit 1
