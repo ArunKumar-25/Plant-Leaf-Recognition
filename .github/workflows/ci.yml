@@ -8,6 +8,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,5 +22,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
+          pip install -e . --no-deps
+      - name: Verify package installs cleanly (packaging smoke test)
+        run: |
+          cd /tmp && python -c "from plantify import data; print('plantify importable from', data.__file__)"
       - name: Run tests
         run: pytest -q
+      # Non-blocking: pinned deps have pre-existing CVEs (tensorflow-cpu/keras,
+      # streamlit, pillow) that need a deliberate upgrade pass, not a silent
+      # major-version bump that could break the committed model.
+      - name: Audit dependencies for known vulnerabilities
+        run: pip-audit -r requirements.txt
+        continue-on-error: true

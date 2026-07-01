@@ -82,6 +82,18 @@ When the model doesn't recognise a leaf, the Streamlit tool can ask the free
 
 The key is read from the env var / secret only — never commit it.
 
+### Recommended: protect the Retrain button with an admin token
+
+The Streamlit tool's **Retrain** button runs training via a subprocess with no
+authentication by default — anyone with access to the deployed app can trigger
+it. Set an `ADMIN_TOKEN` to require a matching token before retraining runs:
+
+1. **Local:** `set ADMIN_TOKEN=your_token` (Windows) / `export ADMIN_TOKEN=your_token`.
+2. **Streamlit Cloud:** app → *Settings → Secrets* → add `ADMIN_TOKEN = "your_token"`.
+
+If unset, the button stays functional but the UI shows an "unprotected"
+warning — fine for local/dev use, but set this for any non-local deployment.
+
 ---
 
 ## Publishing a clean repo (one-time, if starting fresh)

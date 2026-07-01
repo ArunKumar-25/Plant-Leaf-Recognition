@@ -18,8 +18,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger(__name__)
 
 
 def _write_github_output(name: str, value: str) -> None:
@@ -31,7 +35,9 @@ def _write_github_output(name: str, value: str) -> None:
         handle.write(f"{name}={value}\n")
 
 
-def evaluate_gate(baseline: dict, new: dict, tolerance: float) -> tuple[bool, str]:
+def evaluate_gate(
+    baseline: dict, new: dict, tolerance: float, new_species_min_recall: float = 0.60
+) -> tuple[bool, str]:
     """Pure function: returns (accept, reason). Exposed for unit testing."""
     baseline_acc = baseline.get("accuracy")
     new_acc = new.get("accuracy")
@@ -53,7 +59,25 @@ def evaluate_gate(baseline: dict, new: dict, tolerance: float) -> tuple[bool, st
         if new_recall < base_recall - tolerance:
             return False, f"per_class_regression: {species} {new_recall:.4f} < {base_recall:.4f} - {tolerance}"
 
+    # A class with no baseline is brand new this cycle -- nothing to regress
+    # against, so apply an absolute recall floor instead.
+    for species, recall in new_per_class.items():
+        if species in baseline_per_class:
+            continue
+        if recall < new_species_min_recall:
+            return False, f"new_species_below_recall_floor: {species} {recall:.4f} < {new_species_min_recall}"
+
     return True, "accepted"
+
+
+def new_species_names(baseline: dict, new: dict) -> list[str]:
+    """Classes present in `new` but absent from `baseline` -- i.e. species
+    the currently-deployed model has never seen, freshly introduced this
+    retrain cycle. Used by the workflow to decide whether a PR needs
+    mandatory human review instead of auto-merging."""
+    baseline_per_class = baseline.get("per_class", {})
+    new_per_class = new.get("per_class", {})
+    return sorted(species for species in new_per_class if species not in baseline_per_class)
 
 
 def main() -> int:
@@ -61,6 +85,12 @@ def main() -> int:
     parser.add_argument("--baseline", required=True)
     parser.add_argument("--new", required=True)
     parser.add_argument("--tolerance", type=float, default=0.01)
+    parser.add_argument(
+        "--new-species-min-recall",
+        type=float,
+        default=0.60,
+        help="Absolute recall floor for any class present in --new but absent from --baseline",
+    )
     args = parser.parse_args()
 
     with open(args.baseline, encoding="utf-8") as handle:
@@ -68,18 +98,22 @@ def main() -> int:
     with open(args.new, encoding="utf-8") as handle:
         new = json.load(handle)
 
-    accept, reason = evaluate_gate(baseline, new, args.tolerance)
+    accept, reason = evaluate_gate(baseline, new, args.tolerance, args.new_species_min_recall)
 
     baseline_acc = baseline.get("accuracy")
     new_acc = new.get("accuracy")
-    print(f"Baseline accuracy: {baseline_acc}")
-    print(f"New accuracy:      {new_acc}")
-    print(f"Gate result: {'ACCEPT' if accept else 'REJECT'} ({reason})")
+    logger.info("Baseline accuracy: %s", baseline_acc)
+    logger.info("New accuracy:      %s", new_acc)
+    logger.info("Gate result: %s (%s)", "ACCEPT" if accept else "REJECT", reason)
+
+    names = new_species_names(baseline, new)
 
     _write_github_output("accept", "true" if accept else "false")
     _write_github_output("reason", reason)
     _write_github_output("baseline_acc", f"{(baseline_acc or 0) * 100:.2f}")
     _write_github_output("new_acc", f"{(new_acc or 0) * 100:.2f}")
+    _write_github_output("new_species_introduced", "true" if names else "false")
+    _write_github_output("new_species_names", ", ".join(names))
     return 0
 
 

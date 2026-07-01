@@ -19,7 +19,7 @@ from tensorflow import keras
 from tensorflow.keras.preprocessing import image
 
 from . import data, plantnet_client
-from .config import CONFIDENCE_FLOOR, IMG_SIZE, MODEL_DIR, OOD_FILE
+from .config import ADMIN_TOKEN, CONFIDENCE_FLOOR, IMG_SIZE, MODEL_DIR, OOD_FILE
 
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
@@ -120,6 +120,19 @@ def validate_uploaded_image(uploaded) -> bytes | None:
 
 def retrain() -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "scripts/train_model.py"], capture_output=True, text=True)
+
+
+def _resolve_admin_token() -> str:
+    """Same st.secrets-then-env-var pattern as plantnet_client.get_api_key()
+    -- Streamlit Cloud secrets aren't exposed as env vars."""
+    try:
+        import streamlit as st
+
+        if "ADMIN_TOKEN" in st.secrets:
+            return str(st.secrets["ADMIN_TOKEN"]).strip()
+    except Exception:
+        pass
+    return ADMIN_TOKEN
 
 
 def main() -> None:
@@ -241,16 +254,25 @@ def main() -> None:
     st.markdown("---")
     st.subheader("Retrain")
     st.caption("Retrain from full data/ including contributions.")
+    admin_token = _resolve_admin_token()
+    if admin_token:
+        entered_token = st.text_input("Admin token", type="password", key="retrain_admin_token")
+    else:
+        entered_token = None
+        st.warning("Unprotected — set ADMIN_TOKEN (env var or Streamlit secrets) to require a token before retraining.")
     if st.button("Retrain model now"):
-        with st.spinner("Training..."):
-            result = retrain()
-        if result.returncode == 0:
-            st.success("Retraining complete.")
-            tail = "\n".join(result.stdout.strip().splitlines()[-8:])
-            st.code(tail)
+        if admin_token and entered_token != admin_token:
+            st.error("Incorrect admin token.")
         else:
-            st.error("Retraining failed.")
-            st.code((result.stdout + "\n" + result.stderr).strip()[-2500:])
+            with st.spinner("Training..."):
+                result = retrain()
+            if result.returncode == 0:
+                st.success("Retraining complete.")
+                tail = "\n".join(result.stdout.strip().splitlines()[-8:])
+                st.code(tail)
+            else:
+                st.error("Retraining failed.")
+                st.code((result.stdout + "\n" + result.stderr).strip()[-2500:])
 
 
 if __name__ == "__main__":

@@ -15,10 +15,12 @@
         error: document.getElementById("result-error"),
     };
     const placeholder = document.getElementById("result-placeholder");
+    const qualityWarning = document.getElementById("quality-warning");
 
     function hideAllCards() {
         Object.values(cards).forEach(function (el) { el.style.display = "none"; });
         if (placeholder) placeholder.style.display = "none";
+        if (qualityWarning) qualityWarning.style.display = "none";
     }
 
     function renderTopK(listEl, topK) {
@@ -53,6 +55,11 @@
     function renderResult(payload) {
         hideAllCards();
         const pct = Math.round(payload.confidence * 100) + "%";
+
+        if (payload.quality_warning && qualityWarning) {
+            document.getElementById("quality-warning-text").textContent = payload.quality_warning;
+            qualityWarning.style.display = "block";
+        }
 
         if (payload.decision === "ok") {
             document.getElementById("ok-species").textContent = payload.species;

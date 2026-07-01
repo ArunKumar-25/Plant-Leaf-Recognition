@@ -46,6 +46,41 @@ anything — see [Adding a new ML capability](#adding-a-new-ml-capability).
 4. Return one of: `ok`, `uncertain`, `unknown`.
 5. Optional: ask Pl@ntNet for external fallback.
 
+```mermaid
+flowchart TD
+    A["POST /predict"] --> B{"Quality check<br/>looks_like_leaf_scan"}
+    B -->|"fails"| C["quality_ok: false<br/>(prediction still runs,<br/>flagged in response)"]
+    B -->|"passes"| D["Run model prediction"]
+    C --> D
+    D --> E{"Compare domain_similarity<br/>to OOD threshold"}
+    E -->|"sim >= high"| F["decision: ok"]
+    E -->|"low <= sim < high"| G["decision: uncertain"]
+    E -->|"sim < low"| H["decision: unknown"]
+
+    F --> Z["Return response"]
+    G --> Z
+
+    H --> I{"PLANTNET_PUBLIC_FALLBACK_ENABLED?"}
+    I -->|"no"| Z
+    I -->|"yes"| K{"Daily Pl@ntNet cap<br/>reached?"}
+    K -->|"yes"| Z
+    K -->|"no"| L["Call Pl@ntNet API"]
+    L --> M{"Pl@ntNet returned<br/>a confident result?"}
+    M -->|"no / error / timeout<br/>(never raises)"| Z
+    M -->|"yes"| N{"score >= PLANTNET_STAGE_THRESHOLD?<br/>(default 0.70)"}
+    N -->|"no"| O["Response includes<br/>plantnet suggestion,<br/>not staged"]
+    N -->|"yes"| P{"GITHUB_CONTRIB_TOKEN set?"}
+    P -->|"no (default)"| O
+    P -->|"yes"| Q["Stage image + manifest row<br/>to contributions branch<br/>(_stage_candidate)"]
+    Q --> R{"Staging succeeded?<br/>(retries on conflict)"}
+    R -->|"no"| S["Roll back image,<br/>log failure —<br/>response still returns normally"]
+    R -->|"yes"| T["Response includes plantnet<br/>suggestion, row staged<br/>as status: pending"]
+
+    O --> Z
+    S --> Z
+    T --> Z
+```
+
 ## Adding a new ML capability
 
 Identification (`/predict` → `identify.html`) is the reference pattern for
@@ -80,6 +115,13 @@ human in the loop for staging (though a regression gate still guards what
 ever reaches the committed model). This is off by default; every piece below
 requires explicit configuration to activate.
 
+The pipeline is split into two workflows with different cadences and
+purposes, on purpose: **gathering data is cheap and runs daily; training a
+model is comparatively expensive and runs weekly**, once on however much
+accumulated that week. This mirrors how `scripts/fetch_full_dataset.py`
+originally bootstrapped the initial 15 species — fetching and training were
+always two different concerns, they just used to happen in the same job.
+
 **Per-request (`api/main.py`):**
 1. `unknown` only — not `uncertain`, which already has a plausible model
    guess. Gated by `PLANTNET_PUBLIC_FALLBACK_ENABLED` (default off).
@@ -106,32 +148,236 @@ See `src/plantify/data.py`'s `build_pending_row`/`append_pending`/
 `save_contribution` — the trusted, human-confirmed one used by Streamlit's
 "Teach the model".
 
-**Weekly (`.github/workflows/weekly-retrain.yml`, Mondays + manual dispatch):**
-1. Evaluate the currently committed model (`scripts/evaluate_model.py`) → baseline.
-2. Pull `data_pending/` from the `contributions` branch.
-3. `scripts/promote_pending.py` — re-checks the score threshold, maps
-   Pl@ntNet's scientific name onto an existing class by genus (never
-   auto-creates a new species folder from an unverified external guess), caps
-   promotions at `--max-per-class` per cycle, copies accepted images into
-   `data/<species>/`.
-4. If anything was promoted: retrain (`scripts/train_model.py`, unchanged),
-   evaluate the result, and run the **regression gate**
+### Daily: gather (`.github/workflows/daily-gather.yml`)
+
+Never loads TensorFlow or touches the model — this workflow is cheap by
+construction, so it doesn't need a cost-avoidance check the way training
+does. Nothing here ever touches `main`.
+
+1. **If there's real pending data:** `scripts/promote_pending.py` — re-checks
+   the score threshold, maps Pl@ntNet's scientific name onto an existing
+   class by genus, caps promotions at `--max-per-class` per cycle, copies
+   accepted images into `data/<species>/`. Guesses that don't genus-match
+   any existing class are never silently discarded — see "Growing to new
+   species" below.
+2. **If there's no real pending data:** self-sourced reinforcement fills the
+   gap instead of the day going by with nothing happening.
+   `scripts/fetch_species_dataset.py` fetches a small batch
+   (`REINFORCEMENT_FETCH_COUNT`, default 5) of real, licensed images from
+   [GBIF](https://www.gbif.org/) for one existing species, chosen by a
+   deterministic daily rotation (`day_of_year % 15`) so every class gets
+   refreshed periodically.
+3. New-species growth (Path A candidate list, Path B visitor trigger — see
+   below) also runs here, capped at one species per day.
+4. Whatever was gathered is **staged on the `contributions` branch** — the
+   same non-default branch real user candidates already use — under
+   `data_pending/staged/<species-folder>/...` (mirroring `data/`'s own
+   layout) and `data_pending/staged_candidates.txt`. Never `main`. Each
+   run starts by overlaying whatever's already staged there onto the local
+   `data/` working copy first, so `ATTRIBUTION.md` appends and candidate-list
+   "done" markers correctly build on earlier-this-week entries, not just
+   what's already on `main`.
+
+### Weekly: train (`.github/workflows/weekly-retrain.yml`, Mondays + manual dispatch)
+
+1. A cheap check: is there anything actually staged on `contributions`?
+   Reading that worktree is nearly free; loading TensorFlow for a baseline
+   eval is not. `daily-gather.yml` runs every day but often stages nothing
+   (e.g. GBIF had nothing for that day's rotation species) — no need to pay
+   for a retrain over an empty staging area. This is what keeps weekly
+   training from reproducing the original "retrain even when nothing's new"
+   waste, now that gathering happens daily.
+2. If something is staged: merge it onto the local `data/` working copy
+   (still nothing committed to `main` yet — just this job's local checkout),
+   evaluate the currently committed model (`scripts/evaluate_model.py`) →
+   baseline, retrain (`scripts/train_model.py`, unchanged) on the merged
+   `data/`, evaluate the result, and run the **regression gate**
    (`scripts/regression_gate.py`): accept only if aggregate accuracy is
-   within tolerance of baseline *and* no single class's recall regressed
-   (an aggregate-only check can hide one class collapsing while the average
-   looks fine).
-5. Accepted → opens a **pull request** (`artifacts/`, `data/`, and the
-   manifest, on an `auto-retrain/*` branch), body includes the before/after
-   accuracy and gate result, then
-   auto-merges it (`gh pr merge --admin`, so a later branch-protection rule
-   can't accidentally block the automation). Commits are authored as
-   `github-actions[bot]` — **never the human maintainer's identity**; an
-   automated change must say so honestly, not be styled to look like manual
-   work. A PR (not a silent direct push) exists specifically so every model
-   update has a visible diff and review trail in GitHub's normal UI, even
-   though nothing waits on a human click. Rejected → no PR, an issue is
-   opened recording why, and promoted rows revert to `pending` for the next
-   cycle.
+   within tolerance of baseline, no single existing class's recall
+   regressed, and any freshly-introduced class clears an absolute recall
+   floor (`NEW_SPECIES_MIN_RECALL`, default 0.60).
+3. Accepted → opens a **pull request** (`artifacts/`, `data/` — now
+   including this week's merged staged additions — and the manifest, on an
+   `auto-retrain/*` branch), body includes the before/after accuracy and
+   gate result, then clears the now-merged files from `contributions`'s
+   staging area so next week doesn't re-process them. **Auto-merges**
+   (`gh pr merge --admin`) only if no new species was introduced this week;
+   a week that introduced one is left open, explicitly flagged for required
+   human review (see "Growing to new species" below) — never auto-merged.
+   Commits are authored as `github-actions[bot]` — **never the human
+   maintainer's identity**; an automated change must say so honestly, not
+   be styled to look like manual work. A PR (not a silent direct push)
+   exists specifically so every model update has a visible diff and review
+   trail in GitHub's normal UI, even though nothing waits on a human click
+   for the reinforcement-only path.
+   Rejected → **`main` is never touched** (exactly like the pipeline's
+   original, single-workflow design) — no PR, an issue is opened recording
+   why, promoted manifest rows revert to `pending`, and the staged data
+   itself is deliberately left in place on `contributions` (not cleared),
+   ready for an automatic retry next week or a manual prune if the
+   rejection reason points at a specific species.
+
+```mermaid
+flowchart TD
+    subgraph daily ["daily-gather.yml — every day, 06:00 UTC"]
+        DStart(["Cron or workflow_dispatch"]) --> DCheckout["Checkout main +<br/>set up contributions worktree,<br/>overlay this week's staged<br/>data/ additions (if any)"]
+        DCheckout --> DCheapCheck{"Any real status: pending<br/>rows in the manifest?"}
+
+        DCheapCheck -->|"yes"| Promote["promote_pending.py"]
+        Promote --> PromoteOutcome{"Per row: score ok,<br/>genus match,<br/>under cap,<br/>path inside data_pending/images/,<br/>file exists?"}
+        PromoteOutcome -->|"all pass"| PromoteOK["Copy into data/species/<br/>status: promoted_pending_gate"]
+        PromoteOutcome -->|"no genus match<br/>(score still ok)"| StampGroup["Stamp new_species_group,<br/>status: rejected"]
+        PromoteOutcome -->|"any other check fails"| RejOther["status: rejected<br/>(below_score_threshold /<br/>per_class_cap_reached /<br/>invalid_image_path /<br/>image_missing)"]
+
+        StampGroup --> TriggerScan["Re-scan ALL rows (any day)<br/>carrying new_species_group"]
+        TriggerScan --> TriggerCheck{"Enough signals across<br/>enough distinct days?<br/>(Path B threshold)"}
+        TriggerCheck -->|"yes"| TriggerFire["Mark rows trigger_fired,<br/>new_species_ready = true"]
+        TriggerCheck -->|"not yet"| TriggerWait["Rows stay rejected,<br/>re-counted tomorrow"]
+
+        DCheapCheck -->|"no"| Rotation["Pick rotation species<br/>(day_of_year mod 15)"]
+        Rotation --> Reinforce["fetch_species_dataset.py<br/>--count 5 --min-fetched 1<br/>(GBIF, existing class only)"]
+        Reinforce --> ReinforceOutcome{"Fetched >= 1<br/>licensed image?"}
+        ReinforceOutcome -->|"no"| ReinforceFail["continue-on-error,<br/>no images added"]
+        ReinforceOutcome -->|"yes"| ReinforceOK["Images + ATTRIBUTION.md<br/>added to existing<br/>data/species/"]
+
+        PromoteOK --> NSCheck
+        TriggerFire --> NSCheck
+        TriggerWait --> NSCheck
+        RejOther --> NSCheck
+        ReinforceOK --> NSCheck
+        ReinforceFail --> NSCheck
+
+        NSCheck{"Path B ready<br/>today?"} -->|"yes"| FetchB["fetch_species_dataset.py<br/>--species (trigger name)<br/>--count 30"]
+        NSCheck -->|"no"| PathACheck{"Path A: unprocessed line<br/>in new_species_candidates.txt?"}
+        PathACheck -->|"yes"| FetchA["fetch_species_dataset.py<br/>--candidate-list --count 30"]
+        PathACheck -->|"no"| NoNewSpecies["No new species today"]
+
+        FetchB --> FetchBOutcome{"Fetched >= NEW_SPECIES_MIN_FETCHED?"}
+        FetchBOutcome -->|"no"| FetchBFail["Failure — trigger stays<br/>fired, retried tomorrow"]
+        FetchBOutcome -->|"yes"| NewClassB["New class folder + ATTRIBUTION.md"]
+
+        FetchA --> FetchAOutcome{"Fetched >= NEW_SPECIES_MIN_FETCHED?"}
+        FetchAOutcome -->|"no"| FetchAFail["Candidate marked done anyway —<br/>one retry attempt only"]
+        FetchAOutcome -->|"yes"| NewClassA["New class folder + ATTRIBUTION.md,<br/>candidate line marked done"]
+
+        NewClassB --> DStage
+        NewClassA --> DStage
+        FetchBFail --> DStage
+        FetchAFail --> DStage
+        NoNewSpecies --> DStage
+
+        DStage(["Stage new/changed data/ files to<br/>contributions branch<br/>(data_pending/staged/) —<br/>main is never touched here"])
+    end
+
+    DStage -.->|"accumulates over<br/>the week"| WStart
+
+    subgraph weekly ["weekly-retrain.yml — Mondays, 07:00 UTC"]
+        WStart(["Cron or workflow_dispatch"]) --> WCheckout["Checkout main +<br/>set up contributions worktree,<br/>merge staged data/ onto local<br/>working copy (still not on main)"]
+        WCheckout --> WCheapCheck{"Anything staged on<br/>contributions?"}
+        WCheapCheck -->|"no"| WNoOp(["Log 'nothing to train on<br/>this week', exit"])
+
+        WCheapCheck -->|"yes"| Baseline["Evaluate current model<br/>(baseline)"]
+        Baseline --> Retrain["Retrain on the merged,<br/>week-accumulated data/"]
+        Retrain --> Eval2["Evaluate retrained model"]
+        Eval2 --> GateAgg{"Aggregate accuracy<br/>within tolerance?"}
+        GateAgg -->|"no"| GateReject["Gate REJECTED"]
+        GateAgg -->|"yes"| GatePerClass{"Any EXISTING class's<br/>recall regressed?"}
+        GatePerClass -->|"yes"| GateReject
+        GatePerClass -->|"no"| GateNewFloor{"Any NEW class below the<br/>0.60 recall floor?"}
+        GateNewFloor -->|"yes"| GateReject
+        GateNewFloor -->|"no"| GateAccept["Gate ACCEPTED"]
+
+        GateReject --> RevertRows["Revert promoted/trigger_fired<br/>manifest rows to pending.<br/>main untouched; staged data/<br/>left in place on contributions<br/>for retry or manual prune"]
+        RevertRows --> OpenIssue(["Open GitHub issue<br/>recording the rejection"])
+
+        GateAccept --> FinalizeRows["Finalize manifest rows to<br/>accepted_committed"]
+        FinalizeRows --> OpenPR["Open PR (artifacts/ + data/,<br/>now includes this week's<br/>merged staged additions)<br/>github-actions[bot] authored"]
+        OpenPR --> ClearStaged["Clear staged data from<br/>contributions — now safely<br/>part of the PR"]
+        ClearStaged --> MergeCheck{"new_species_introduced<br/>this week?"}
+        MergeCheck -->|"no"| AutoMerge(["Auto-merge<br/>(gh pr merge --admin)"])
+        MergeCheck -->|"yes"| FlagReview(["Leave PR open —<br/>flagged for mandatory<br/>human review, never<br/>auto-merged"])
+    end
+```
+
+### Growing to new species
+
+Species outside the current 15 are never added from a single unverified
+Pl@ntNet guess. Two parallel paths feed into the same fetch mechanism
+(`fetch_species_dataset.py`) and the same safety net — at most **one** new
+species is processed per day, to keep review load manageable:
+
+- **Path A — maintainer-curated candidate list**
+  (`scripts/new_species_candidates.txt`): a plain text file, one scientific
+  name per line, edited by hand any time. Each day, if the day's "one new
+  species" budget hasn't been spent, the first unprocessed line is fetched
+  from GBIF and marked done (or left for a future retry if GBIF didn't have
+  enough licensed images). This is what lets the model grow to new species
+  without depending on any visitor traffic at all.
+- **Path B — visitor-driven Pl@ntNet signal**: `promote_pending.py` stamps
+  a `new_species_group` field (the exact, lowercased Pl@ntNet scientific
+  name) onto rows that pass the score threshold but don't genus-match any
+  known class, instead of discarding them. Once a species accumulates
+  `NEW_SPECIES_TRIGGER_MIN_SIGNALS` (default 3) independent guesses across
+  `NEW_SPECIES_TRIGGER_MIN_DIVERSITY_DAYS` (default 2) distinct days, that's
+  reported as a trigger and the same GBIF fetch fires for it. These photos
+  are only ever a *trigger signal* now, never the actual training data. If
+  both paths are ready the same day, Path B takes priority — real user
+  signal is stronger evidence than a maintainer's guess.
+
+`fetch_species_dataset.py` queries GBIF's public occurrence API, keeps only
+permissively-licensed media (CC0/CC-BY/CC-BY-SA — excludes NC/ND by default,
+matching this repo's own MIT/fully-open stance), downloads and downsizes the
+images the same way `fetch_full_dataset.py` originally bootstrapped the
+initial 15 species, and writes `data/<folder>/ATTRIBUTION.md` (creator,
+license, source link per image — required for CC-BY/CC-BY-SA compliance).
+
+**Known limitations, stated honestly rather than papered over:**
+
+- **Domain mismatch.** The existing 15 classes are trained on clean,
+  single-leaf, near-white-background studio scans. GBIF/iNaturalist photos
+  are typically field/habit shots — different backgrounds, lighting, and
+  framing. This affects both self-sourced reinforcement and new species.
+  `fetch_species_dataset.py` makes no attempt to correct for this beyond
+  GBIF's own metadata; the real protection is the regression gate (for
+  reinforcement, recall can't drop) and mandatory human review (for new
+  species) — not a claim that the mismatch is solved.
+- **Some species names GBIF can't resolve at all.** `_search_media()` first
+  tries the full scientific name, then (`_base_binomial_fallback()`) retries
+  with just genus + species epithet if the full name had a cultivar/variety
+  qualifier (e.g. `"Salix alba 'Sericea"` → `"Salix alba"`). This helps
+  common cases, but confirmed live against GBIF's API: `"Salix alba"` itself
+  is ambiguous in GBIF's backbone taxonomy (`/species/match` returns
+  `matchType: "NONE"`, `"Multiple equal matches for Salix alba"`) — its
+  occurrence search returns zero results no matter how the name is
+  formatted. This is a genuine GBIF data-resolution gap, not a bug in this
+  script; for such species (leaf7, `"Salix alba 'Sericea"`, is a concrete
+  example already in this dataset), self-sourced reinforcement will
+  reliably find nothing and the class can only grow via real visitor
+  uploads through the Pl@ntNet path, which doesn't depend on exact-name
+  GBIF resolution.
+- **Diversity heuristic is a proxy, not a guarantee.** The live API has no
+  user/session identity, so Path B's "diverse enough" check is just
+  timestamp day-bucketing. A sufficiently patient actor spreading requests
+  across several days could still eventually trigger accumulation — but
+  Pl@ntNet must independently agree at `>= 0.70` confidence each time (an
+  external signal not directly controlled by the requester), and the
+  mandatory human-merge gate on the resulting PR is the actual backstop,
+  not this heuristic.
+- **PR-reject "flicker".** Manifest rows reach `accepted_committed` once the
+  regression gate accepts, which happens *before* a human actually merges
+  the PR. If a maintainer rejects a new-species PR instead of merging it,
+  the corresponding rows need a manual revert to `"pending"` on the
+  `contributions` branch — not automated today.
+- **Daily-gather's staging step isn't itself transactional.** `daily-gather.yml`
+  detects "what changed under `data/` this run" via `git status --porcelain`
+  and copies those files to the `contributions` staging area in a separate
+  step from the fetch itself. If the job were killed between a successful
+  fetch and that copy (rare — GitHub Actions runners don't typically die
+  mid-step), the fetched images would be lost rather than staged, and
+  silently re-attempted the next day (rotation moves on; Path A/B would
+  simply retry). Not data corruption, just a small, bounded chance of a
+  wasted fetch — not worth building retry/transaction logic around for how
+  rarely a runner actually dies mid-job.
 
 ## Compatibility Layer
 

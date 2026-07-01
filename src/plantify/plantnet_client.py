@@ -7,6 +7,8 @@ from typing import Dict, List
 
 import requests
 
+from .http_utils import request_with_retry
+
 API_URL = "https://my-api.plantnet.org/v2/identify/all"
 
 _ERRORS = {
@@ -39,19 +41,22 @@ def identify(image_path: str, organ: str = "leaf", max_results: int = 3, timeout
         return {"error": "no_key"}
 
     try:
+        # Bytes, not a file handle -- a handle would be exhausted (empty) on retry.
         with open(image_path, "rb") as handle:
-            resp = requests.post(
-                API_URL,
-                params={
-                    "api-key": key,
-                    "include-related-images": "false",
-                    "lang": "en",
-                    "nb-results": max_results,
-                },
-                files={"images": handle},
-                data={"organs": organ},
-                timeout=timeout,
-            )
+            image_bytes = handle.read()
+        resp = request_with_retry(
+            "POST",
+            API_URL,
+            params={
+                "api-key": key,
+                "include-related-images": "false",
+                "lang": "en",
+                "nb-results": max_results,
+            },
+            files={"images": ("image.jpg", image_bytes)},
+            data={"organs": organ},
+            timeout=timeout,
+        )
         if resp.status_code in (401, 403):
             return {"error": "bad_key"}
         if resp.status_code == 429:

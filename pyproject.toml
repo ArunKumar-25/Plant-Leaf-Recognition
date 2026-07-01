@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plantify"
+version = "0.1.0"
+description = "Leaf-species ML classifier: training pipeline, FastAPI inference service, and active-learning tooling."
+requires-python = ">=3.10"
+# Runtime/dev dependencies are managed in requirements.txt / requirements-dev.txt,
+# not duplicated here, so there is a single source of truth for versions.
+dynamic = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

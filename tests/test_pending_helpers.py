@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import os
 
+from plantify import data
 from scripts import regression_gate
-from src.plantify import data
 
 
 def _use_tmp_pending_dir(monkeypatch, tmp_path):
@@ -164,3 +164,43 @@ def test_gate_ignores_classes_missing_from_new_eval():
     accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01)
     assert accept is True
     assert reason == "accepted"
+
+
+def test_gate_rejects_new_species_below_recall_floor():
+    baseline = {"accuracy": 0.90, "per_class": {"Acer": 0.95}}
+    # "Cosmos" wasn't in baseline at all -- freshly introduced this cycle.
+    new = {"accuracy": 0.90, "per_class": {"Acer": 0.96, "Cosmos": 0.33}}
+    accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01, new_species_min_recall=0.60)
+    assert accept is False
+    assert "new_species_below_recall_floor" in reason
+    assert "Cosmos" in reason
+
+
+def test_gate_accepts_new_species_at_or_above_recall_floor():
+    baseline = {"accuracy": 0.90, "per_class": {"Acer": 0.95}}
+    new = {"accuracy": 0.90, "per_class": {"Acer": 0.96, "Cosmos": 0.67}}
+    accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01, new_species_min_recall=0.60)
+    assert accept is True
+    assert reason == "accepted"
+
+
+def test_gate_new_species_floor_defaults_without_explicit_arg():
+    # Existing 3-positional-arg call sites (e.g. weekly-retrain.yml's
+    # original usage pattern) must keep working unchanged.
+    baseline = {"accuracy": 0.90, "per_class": {}}
+    new = {"accuracy": 0.90, "per_class": {"Cosmos": 0.10}}
+    accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01)
+    assert accept is False
+    assert "new_species_below_recall_floor" in reason
+
+
+def test_new_species_names_identifies_classes_absent_from_baseline():
+    baseline = {"per_class": {"Acer": 0.95, "Quercus": 0.90}}
+    new = {"per_class": {"Acer": 0.96, "Quercus": 0.91, "Cosmos": 0.70, "Bellis": 0.65}}
+    assert regression_gate.new_species_names(baseline, new) == ["Bellis", "Cosmos"]
+
+
+def test_new_species_names_empty_when_nothing_new():
+    baseline = {"per_class": {"Acer": 0.95}}
+    new = {"per_class": {"Acer": 0.96}}
+    assert regression_gate.new_species_names(baseline, new) == []

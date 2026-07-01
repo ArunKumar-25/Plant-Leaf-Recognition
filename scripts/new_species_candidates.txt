@@ -1,0 +1,13 @@
+# Maintainer-curated list of species to eventually add to Plantify's
+# trained model, independent of live visitor traffic.
+#
+# One scientific name per line (e.g. "Taraxacum officinale"). Add a line
+# any time you want the model to eventually learn a species. The daily
+# active-learning workflow picks the first unprocessed line, fetches a
+# real, licensed image set for it from GBIF (scripts/fetch_species_dataset.py),
+# and opens a pull request for human review (never auto-merged — see
+# docs/ARCHITECTURE.md's "Active Learning & Self-Retraining" section).
+#
+# Lines starting with "#" are ignored. Once a line has been attempted, it's
+# rewritten as "# done: <date> <name>" so it isn't retried automatically —
+# delete the "# done:" prefix (or re-add a plain line) to retry it.

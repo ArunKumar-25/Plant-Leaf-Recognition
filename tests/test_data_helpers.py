@@ -1,6 +1,6 @@
 """Basic smoke tests for dataset helper utilities."""
 
-from src.plantify import data
+from plantify import data
 
 
 def test_species_mapping_known_folder():

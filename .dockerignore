@@ -1,0 +1,14 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.vscode
+tests
+docs
+web
+samples
+data
+*.egg-info
+.streamlit/secrets.toml

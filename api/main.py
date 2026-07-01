@@ -24,14 +24,35 @@ from PIL import Image
 from tensorflow import keras
 from tensorflow.keras.preprocessing import image as keras_image
 
-from src.plantify import plantnet_client
-from src.plantify.config import CONFIDENCE_FLOOR, IMG_SIZE, MODEL_DIR, OOD_FILE
-from src.plantify.data import PENDING_MANIFEST, build_pending_row, load_labels
+from plantify import plantnet_client
+from plantify.config import (
+    CONFIDENCE_FLOOR,
+    CORS_ALLOW_HEADERS,
+    CORS_ALLOW_METHODS,
+    CORS_ALLOW_ORIGINS,
+    GITHUB_BRANCH,
+    GITHUB_CONTRIB_TOKEN,
+    GITHUB_REPO,
+    IMG_SIZE,
+    MAX_UPLOAD_BYTES,
+    MAX_WHITE_BG,
+    MIN_WHITE_BG,
+    MODEL_DIR,
+    OOD_FILE,
+    PLANTNET_DAILY_CAP,
+    PLANTNET_PUBLIC_FALLBACK_ENABLED,
+    PLANTNET_STAGE_THRESHOLD,
+    RATE_LIMIT_REQUESTS_PER_MINUTE,
+    REJECT_MAX_WHITE_BG,
+    REJECT_MIN_WHITE_BG,
+    STAGING_MAX_RETRIES,
+)
+from plantify.data import PENDING_MANIFEST, build_pending_row, load_labels
 
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 _staging_logger = logging.getLogger("plantify.staging")
+_api_logger = logging.getLogger("plantify.api")
 
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(8 * 1024 * 1024)))
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg",
@@ -40,19 +61,6 @@ ALLOWED_CONTENT_TYPES = {
     "image/tiff",
     "image/webp",
 }
-
-PLANTNET_DAILY_CAP = int(os.getenv("PLANTNET_DAILY_CAP", "300"))
-PLANTNET_PUBLIC_FALLBACK_ENABLED = os.getenv("PLANTNET_PUBLIC_FALLBACK_ENABLED", "").lower() in {
-    "1",
-    "true",
-    "yes",
-}
-PLANTNET_STAGE_THRESHOLD = float(os.getenv("PLANTNET_STAGE_THRESHOLD", "0.70"))
-GITHUB_CONTRIB_TOKEN = os.getenv("GITHUB_CONTRIB_TOKEN", "").strip()
-GITHUB_REPO = os.getenv("GITHUB_REPO", "").strip()
-GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "contributions")
-STAGING_MAX_RETRIES = int(os.getenv("STAGING_MAX_RETRIES", "3"))
-RATE_LIMIT_REQUESTS_PER_MINUTE = int(os.getenv("RATE_LIMIT_REQUESTS_PER_MINUTE", "30"))
 
 
 @asynccontextmanager
@@ -63,21 +71,25 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Plantify Leaf API", version="2.0.0", lifespan=lifespan)
 
-allowed_origins = [
-    origin.strip()
-    for origin in os.getenv(
-        "CORS_ALLOW_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
-    ).split(",")
-    if origin.strip()
-]
-allow_credentials = "*" not in allowed_origins
+allow_credentials = "*" not in CORS_ALLOW_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=CORS_ALLOW_ORIGINS,
     allow_credentials=allow_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=CORS_ALLOW_METHODS,
+    allow_headers=CORS_ALLOW_HEADERS,
 )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Last-resort catch-all: log the full traceback server-side, never leak
+    internal detail (stack trace, exception message) to the client."""
+    _api_logger.exception(
+        "Unhandled exception on %s %s: %r", request.method, request.url.path, exc
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 
 _model = None
 _labels: List[str] = []
@@ -115,12 +127,21 @@ def _load_once() -> None:
         _ood_threshold = float(d["threshold"])
 
 
-def _looks_like_leaf_scan(path: str) -> bool:
+def _leaf_scan_quality(path: str) -> str:
+    """Classify upload quality by near-white-background fraction into three
+    bands: "ok" (matches the training domain), "warn" (leaf-like but
+    off-format -- still worth a prediction, flagged as less reliable), or
+    "reject" (doesn't look like an attempted leaf photo at all -- caller
+    should skip the model entirely)."""
     img = cv2.imread(path)
     if img is None:
-        return False
+        return "reject"
     white = float((img > 200).all(2).mean())
-    return 0.40 <= white <= 0.97
+    if MIN_WHITE_BG <= white <= MAX_WHITE_BG:
+        return "ok"
+    if REJECT_MIN_WHITE_BG <= white <= REJECT_MAX_WHITE_BG:
+        return "warn"
+    return "reject"
 
 
 def _predict_topk(path: str, k: int = 3) -> Dict[str, object]:
@@ -321,14 +342,22 @@ def _stage_candidate(image_bytes: bytes, row: Dict[str, object]) -> None:
 
 
 @app.get("/health")
-def health() -> Dict[str, object]:
-    _load_once()
-    return {
-        "status": "ok",
-        "model_loaded": _model is not None,
-        "num_classes": len(_labels),
-        "ood_enabled": _ood_feats is not None,
-    }
+def health() -> JSONResponse:
+    try:
+        _load_once()
+    except Exception:
+        _api_logger.exception("Model failed to load")
+        return JSONResponse(
+            status_code=503, content={"status": "error", "detail": "model failed to load"}
+        )
+    return JSONResponse(
+        {
+            "status": "ok",
+            "model_loaded": _model is not None,
+            "num_classes": len(_labels),
+            "ood_enabled": _ood_feats is not None,
+        }
+    )
 
 
 @app.post("/predict")
@@ -362,9 +391,19 @@ async def predict(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Invalid image") from exc
 
     try:
-        quality_ok = _looks_like_leaf_scan(temp_path)
-        pred = _predict_topk(temp_path, k=3)
-        sim = _domain_similarity(pred["array"])
+        quality = _leaf_scan_quality(temp_path)
+        if quality == "reject":
+            raise HTTPException(
+                status_code=422,
+                detail="This doesn't look like a leaf photo. Try a clear photo of a single leaf on a plain background.",
+            )
+
+        try:
+            pred = _predict_topk(temp_path, k=3)
+            sim = _domain_similarity(pred["array"])
+        except Exception:
+            _api_logger.exception("Model inference failed")
+            raise HTTPException(status_code=503, detail="Model temporarily unavailable") from None
 
         if sim is None:
             decision = "ok" if pred["confidence"] >= CONFIDENCE_FLOOR else "unknown"
@@ -383,10 +422,15 @@ async def predict(request: Request, file: UploadFile = File(...)):
             "confidence": pred["confidence"],
             "top_k": pred["top_k"],
             "decision": decision,
-            "quality_ok": quality_ok,
+            "quality": quality,
             "domain_similarity": sim,
             "num_classes": len(_labels),
         }
+        if quality == "warn":
+            payload["quality_warning"] = (
+                "This photo doesn't closely match the clean, single-leaf scans the model was trained "
+                "on, so this result may be less reliable than usual."
+            )
 
         plantnet_top = _maybe_consult_plantnet(temp_path, decision)
         if plantnet_top is not None:

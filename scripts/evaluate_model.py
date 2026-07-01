@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 
@@ -23,10 +24,11 @@ import cv2
 import numpy as np
 from tensorflow import keras
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from plantify import data
+from plantify.config import IMG_SIZE, MODEL_DIR
 
-from src.plantify import data
-from src.plantify.config import IMG_SIZE, MODEL_DIR
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger(__name__)
 
 SEED = 42
 
@@ -63,7 +65,7 @@ def main() -> int:
 
     x_test, y_test, classes = _load_test_split()
     if len(y_test) == 0:
-        print("No test images found under data/ — nothing to evaluate.")
+        logger.info("No test images found under data/ — nothing to evaluate.")
         json.dump({"accuracy": None, "per_class": {}, "n_test": 0}, open(args.out, "w", encoding="utf-8"))
         return 0
 
@@ -83,7 +85,7 @@ def main() -> int:
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(metrics, handle, indent=2)
 
-    print("Evaluated on %d test images: accuracy=%.4f" % (len(y_test), accuracy))
+    logger.info("Evaluated on %d test images: accuracy=%.4f", len(y_test), accuracy)
     return 0
 
 

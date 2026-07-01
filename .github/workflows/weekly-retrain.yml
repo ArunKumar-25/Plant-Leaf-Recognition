@@ -1,8 +1,14 @@
 name: Weekly self-retrain
 
+# Trains weekly on whatever daily-gather.yml has staged on the contributions
+# branch. Owns baseline eval, retrain, regression gate, and the PR/merge
+# decision. Staged data only reaches main via a gate-accepted PR; a rejected
+# retrain leaves main untouched. See docs/ARCHITECTURE.md's
+# "Active Learning & Self-Retraining" section.
+
 on:
   schedule:
-    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+    - cron: "0 7 * * 1" # Monday 07:00 UTC -- an hour after the daily gather run
   workflow_dispatch: {} # manual trigger, for demoing/debugging
 
 permissions:
@@ -17,6 +23,7 @@ concurrency:
 jobs:
   retrain:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,14 +40,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -e . --no-deps
 
-      # Materialize the contributions branch in a SEPARATE worktree rather than
-      # switching the main checkout's active branch mid-job. Repeatedly
-      # `git checkout`-ing between branches in one working tree is fragile:
-      # data_pending/ was never really part of main's history, so switching
-      # back to main can silently wipe files that were only manually
-      # `checkout <ref> -- <path>`'d in earlier. A worktree keeps both
-      # branches materialized independently for the whole job.
+      # Separate worktree for contributions rather than switching branches
+      # mid-job -- data_pending/ isn't really part of main's history, so
+      # repeated checkouts risk silently wiping manually-staged files.
       - name: Set up contributions worktree
         id: fetch_pending
         run: |
@@ -55,44 +59,50 @@ jobs:
           if [ -d ../contributions-wt/data_pending ]; then
             cp -r ../contributions-wt/data_pending .
           fi
+          # Merge this week's staged data/ additions into the local checkout
+          # only -- nothing commits to main until the gate accepts the PR.
+          if [ -d ../contributions-wt/data_pending/staged ]; then
+            cp -r ../contributions-wt/data_pending/staged/. data/
+          fi
+          if [ -f ../contributions-wt/data_pending/staged_candidates.txt ]; then
+            cp ../contributions-wt/data_pending/staged_candidates.txt scripts/new_species_candidates.txt
+          fi
+
+      # Cheap check before paying for a TensorFlow baseline eval -- daily-gather.yml
+      # often stages nothing.
+      - name: Check whether anything is staged to train on
+        id: cheap_check
+        run: |
+          if [ -d ../contributions-wt/data_pending/staged ] && [ -n "$(find ../contributions-wt/data_pending/staged -type f 2>/dev/null)" ]; then
+            echo "has_new_data=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_new_data=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Evaluate current committed model (baseline)
+        if: steps.cheap_check.outputs.has_new_data == 'true'
         run: python scripts/evaluate_model.py --out artifacts/reports/_baseline_metrics.json
 
-      - name: Promote qualifying candidates
-        id: pending
-        run: python scripts/promote_pending.py --min-plantnet-score 0.70 --max-per-class 25
-
-      - name: Sync processed manifest back to contributions branch
-        if: steps.fetch_pending.outputs.has_branch == 'true' && steps.pending.outputs.had_pending == 'true'
-        run: |
-          cp data_pending/manifest.jsonl ../contributions-wt/data_pending/manifest.jsonl
-          cd ../contributions-wt
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data_pending/manifest.jsonl
-          git commit -m "chore(contrib): mark candidates processed by weekly retrain run" || echo "Nothing to update."
-          git push origin contributions
-
       - name: Retrain
-        if: steps.pending.outputs.promoted_count != '0'
+        if: steps.cheap_check.outputs.has_new_data == 'true'
         run: python scripts/train_model.py
 
       - name: Evaluate retrained model
-        if: steps.pending.outputs.promoted_count != '0'
+        if: steps.cheap_check.outputs.has_new_data == 'true'
         run: python scripts/evaluate_model.py --out artifacts/reports/_new_metrics.json
 
       - name: Regression gate
-        if: steps.pending.outputs.promoted_count != '0'
+        if: steps.cheap_check.outputs.has_new_data == 'true'
         id: gate
         run: |
           python scripts/regression_gate.py \
             --baseline artifacts/reports/_baseline_metrics.json \
             --new artifacts/reports/_new_metrics.json \
-            --tolerance 0.01
+            --tolerance 0.01 \
+            --new-species-min-recall 0.60
 
       - name: Finalize manifest statuses after accepted gate
-        if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept == 'true'
+        if: steps.cheap_check.outputs.has_new_data == 'true' && steps.gate.outputs.accept == 'true'
         run: |
           python - <<'PY'
           import json
@@ -109,7 +119,7 @@ jobs:
             rows = []
 
           for row in rows:
-            if row.get("status") == "promoted_pending_gate":
+            if row.get("status") in ("promoted_pending_gate", "trigger_fired"):
               row["status"] = "accepted_committed"
 
           with open(path, "w", encoding="utf-8") as handle:
@@ -118,7 +128,7 @@ jobs:
           PY
 
       - name: Revert promoted rows if gate rejected
-        if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept != 'true'
+        if: steps.cheap_check.outputs.has_new_data == 'true' && steps.gate.outputs.accept != 'true'
         run: |
           python - <<'PY'
           import json
@@ -135,7 +145,7 @@ jobs:
             rows = []
 
           for row in rows:
-            if row.get("status") == "promoted_pending_gate":
+            if row.get("status") in ("promoted_pending_gate", "trigger_fired"):
               row["status"] = "pending"
               row["reject_reason"] = "gate_rejected_retry_next_cycle"
 
@@ -145,7 +155,7 @@ jobs:
           PY
 
       - name: Sync finalized manifest to contributions branch
-        if: steps.fetch_pending.outputs.has_branch == 'true' && steps.pending.outputs.promoted_count != '0'
+        if: steps.fetch_pending.outputs.has_branch == 'true' && steps.cheap_check.outputs.has_new_data == 'true'
         run: |
           cp data_pending/manifest.jsonl ../contributions-wt/data_pending/manifest.jsonl
           cd ../contributions-wt
@@ -155,26 +165,39 @@ jobs:
           git commit -m "chore(contrib): finalize candidate statuses after weekly gate" || echo "Nothing to update."
           git push origin contributions
 
-      - name: Open and auto-merge a PR with the improved model
-        if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept == 'true'
+      - name: Open a PR with the retrained model
+        if: steps.cheap_check.outputs.has_new_data == 'true' && steps.gate.outputs.accept == 'true'
+        id: open_pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_SPECIES_INTRODUCED: ${{ steps.gate.outputs.new_species_introduced }}
+          NEW_SPECIES_NAMES: ${{ steps.gate.outputs.new_species_names }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           rm -f artifacts/reports/_baseline_metrics.json artifacts/reports/_new_metrics.json
 
+          if [ "$NEW_SPECIES_INTRODUCED" = "true" ]; then
+            SPECIES_NOTE="New species introduced this cycle: $NEW_SPECIES_NAMES (sourced from GBIF via daily-gather.yml, not real user photos)."
+            REVIEW_NOTE="**Requires human review before merging — this cycle introduced new species (\`$NEW_SPECIES_NAMES\`) sourced from GBIF.** Images are field/habit photos (not the clean studio scans the other species use) and have never been reviewed by a person. Check \`data/<new-folder>/ATTRIBUTION.md\` for licensing, and eyeball a few images for quality/domain-fit before merging. **This PR will not auto-merge.**"
+          else
+            SPECIES_NOTE="Existing-class reinforcement only — no new species this cycle."
+            REVIEW_NOTE="Auto-merging since the regression gate is the real safety check here for existing-class reinforcement — see \`docs/ARCHITECTURE.md\`'s 'Active Learning & Self-Retraining' section."
+          fi
+
           BRANCH="auto-retrain/$(date -u +%Y%m%d)-${{ github.run_number }}"
           git checkout -b "$BRANCH"
-          git add artifacts data data_pending/manifest.jsonl
+          git add artifacts data scripts/new_species_candidates.txt data_pending/manifest.jsonl
           git commit -m "chore(model): weekly automated retrain
 
           Baseline accuracy: ${{ steps.gate.outputs.baseline_acc }}%
           New accuracy:      ${{ steps.gate.outputs.new_acc }}%
-          New training images this cycle: ${{ steps.pending.outputs.new_images_count }}
+          $SPECIES_NOTE
 
-          This commit was created by a scheduled GitHub Actions workflow
-          (.github/workflows/weekly-retrain.yml), not a human contributor."
+          Trained on data/ as accumulated by daily-gather.yml over the past
+          week. This commit was created by a scheduled GitHub Actions
+          workflow (.github/workflows/weekly-retrain.yml), not a human
+          contributor."
           git push origin "$BRANCH"
 
           PR_URL=$(gh pr create \
@@ -188,16 +211,44 @@ jobs:
           |---|---|
           | Baseline accuracy | ${{ steps.gate.outputs.baseline_acc }}% |
           | New accuracy | ${{ steps.gate.outputs.new_acc }}% |
-          | New training images this cycle | ${{ steps.pending.outputs.new_images_count }} |
           | Regression gate | PASSED (\`${{ steps.gate.outputs.reason }}\`) |
 
-          Passed both the aggregate-accuracy and per-class-recall regression checks against the currently committed model. Auto-merging since the gate is the real safety check here — see \`docs/ARCHITECTURE.md\`'s 'Active Learning & Self-Retraining' section for the full pipeline.")
+          Trained on \`data/\` as accumulated daily by \`.github/workflows/daily-gather.yml\` over the past week.
 
+          $REVIEW_NOTE")
+
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "Opened $PR_URL"
-          gh pr merge "$PR_URL" --squash --delete-branch --admin
+
+      - name: Auto-merge (existing-class reinforcement only)
+        if: steps.cheap_check.outputs.has_new_data == 'true' && steps.gate.outputs.accept == 'true' && steps.gate.outputs.new_species_introduced != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge "${{ steps.open_pr.outputs.pr_url }}" --squash --delete-branch --admin
+
+      - name: Flag for required human review (new species introduced)
+        if: steps.cheap_check.outputs.has_new_data == 'true' && steps.gate.outputs.accept == 'true' && steps.gate.outputs.new_species_introduced == 'true'
+        run: |
+          {
+            echo "## New species introduced — PR requires human review"
+            echo "${{ steps.open_pr.outputs.pr_url }} was opened but NOT auto-merged."
+            echo "Species: ${{ steps.gate.outputs.new_species_names }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Accepted retrain's staged data is now part of the PR/branch history --
+      # clear it so next week doesn't re-stage already-merged files.
+      - name: Clear staged data from contributions branch
+        if: steps.fetch_pending.outputs.has_branch == 'true' && steps.cheap_check.outputs.has_new_data == 'true' && steps.gate.outputs.accept == 'true'
+        run: |
+          cd ../contributions-wt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -r --ignore-unmatch data_pending/staged data_pending/staged_candidates.txt
+          git commit -m "chore(contrib): clear staged data merged by weekly retrain" || echo "Nothing to clear."
+          git push origin contributions
 
       - name: Record rejected retrain
-        if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept != 'true'
+        if: steps.cheap_check.outputs.has_new_data == 'true' && steps.gate.outputs.accept != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -209,13 +260,8 @@ jobs:
           gh issue create \
             --repo "${{ github.repository }}" \
             --title "Weekly retrain rejected ($(date -u +%F))" \
-            --body "New model accuracy ${{ steps.gate.outputs.new_acc }}% did not meet the regression-gate tolerance against baseline ${{ steps.gate.outputs.baseline_acc }}% (reason: ${{ steps.gate.outputs.reason }}). Not committed to main — data/model changes in this run were discarded. Promoted candidate rows were reverted to pending on the contributions branch for retry in the next cycle."
+            --body "New model accuracy ${{ steps.gate.outputs.new_acc }}% did not meet the regression-gate tolerance against baseline ${{ steps.gate.outputs.baseline_acc }}% (reason: ${{ steps.gate.outputs.reason }}). Nothing was committed to main — the retrained model and evaluation from this run were discarded. Promoted candidate rows were reverted to pending on the contributions branch for retry next cycle. The staged data this attempt was built on (\`data_pending/staged/\` on the contributions branch) was left in place, not cleared — it'll be retried next week automatically. If the rejection reason points at a specific species, its files under \`data_pending/staged/\` on contributions are worth a manual look/prune before then."
 
-      - name: No candidates this cycle
-        if: steps.pending.outputs.had_pending != 'true'
-        run: echo "No pending candidate data this week — nothing to process." >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Pending processed but none promoted
-        if: steps.pending.outputs.had_pending == 'true' && steps.pending.outputs.promoted_count == '0'
-        run: |
-          echo "Pending candidates were processed, but none met promotion criteria this cycle." >> "$GITHUB_STEP_SUMMARY"
+      - name: Nothing to do this cycle
+        if: steps.cheap_check.outputs.has_new_data != 'true'
+        run: echo "No data changes since the last retrain — nothing to train on this week." >> "$GITHUB_STEP_SUMMARY"

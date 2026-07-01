@@ -30,7 +30,7 @@ FOLDER_SPECIES = {
     "leaf8": "Populus tremula",
     "leaf9": "Ulmus glabra",
     "leaf10": "Sorbus aucuparia",
-    "leaf11": "Salix sinerea",
+    "leaf11": "Salix cinerea",
     "leaf12": "Populus",
     "leaf13": "Tilia",
     "leaf14": "Sorbus intermedia",

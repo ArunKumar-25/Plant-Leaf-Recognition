@@ -40,7 +40,18 @@ Constraints:
 - max file size: 8 MB (default)
 - accepted types: jpg, png, bmp, tiff, webp
 
-Example response:
+Before running the model, the upload is scored by `_leaf_scan_quality` — the
+fraction of near-white background pixels, bucketed into three bands:
+
+- **reject** (doesn't look like an attempted leaf photo at all — undecodable,
+  or the background is nowhere close to plain): the model never runs;
+  responds `422` with `{"detail": "This doesn't look like a leaf photo. ..."}`.
+- **warn** (leaf-like but off-format — busier background/lighting than the
+  training domain): the model runs normally, and the response includes an
+  extra `quality_warning` string the UI should surface.
+- **ok** (matches the training domain): the model runs normally, no warning.
+
+Example response (`ok` quality, `ok` decision):
 
 ```json
 {
@@ -52,17 +63,23 @@ Example response:
     { "species": "Quercus", "confidence": 0.005 }
   ],
   "decision": "ok",
-  "quality_ok": true,
+  "quality": "ok",
   "domain_similarity": 0.91,
   "num_classes": 15
 }
 ```
 
+`quality: "warn"` responses add a `quality_warning` string field alongside
+the fields above — see the frontend integration snippet's UI mapping.
+
 `decision` meanings:
 
 - `ok`: confident in known species
 - `uncertain`: weak match, show warning in UI
-- `unknown`: likely outside trained domain/species
+- `unknown`: likely outside trained domain/species — the API may also
+  include a `plantnet` field (second-opinion suggestion) if Pl@ntNet was
+  consulted; see `docs/ARCHITECTURE.md`'s "Active Learning & Self-Retraining"
+  section.
 
 ## Frontend integration snippet
 
@@ -83,9 +100,14 @@ async function predictLeaf(file) {
 
 UI mapping recommendation:
 
+- if the request fails with `422`: show the `detail` message directly —
+  the upload didn't look like an attempted leaf photo, the model never ran
+- if `quality === "warn"`: show the `quality_warning` string as a caveat,
+  regardless of which `decision` card is also shown
 - if `decision === "ok"`: show success card
 - if `decision === "uncertain"`: show amber warning + top_k options
-- if `decision === "unknown"`: show fallback message + ask user to teach species
+- if `decision === "unknown"`: show fallback message + ask user to teach
+  species; if a `plantnet` field is present, show its suggestion too
 
 ## CORS configuration
 

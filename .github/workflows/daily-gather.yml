@@ -1,0 +1,187 @@
+name: Daily active-learning gather
+
+# Fetches/stages candidate data daily (visitor uploads or, on quiet days,
+# GBIF images) onto the `contributions` branch -- never `main` directly.
+# Doesn't touch the model; weekly-retrain.yml owns training and gating.
+# See docs/ARCHITECTURE.md's "Active Learning & Self-Retraining" section.
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # Daily 06:00 UTC
+  workflow_dispatch: {} # manual trigger, for demoing/debugging
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-gather
+  cancel-in-progress: false
+
+jobs:
+  gather:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e . --no-deps
+
+      # Separate worktree for contributions (see weekly-retrain.yml for why),
+      # overlaying this week's already-staged data/ so today's run sees the
+      # full accumulated picture.
+      - name: Set up contributions worktree
+        id: fetch_pending
+        run: |
+          if git ls-remote --exit-code --heads origin contributions > /dev/null 2>&1; then
+            git fetch origin contributions
+            git worktree add -b contributions ../contributions-wt origin/contributions
+            echo "has_branch=true" >> "$GITHUB_OUTPUT"
+          else
+            mkdir -p ../contributions-wt/data_pending
+            echo "has_branch=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -d ../contributions-wt/data_pending ]; then
+            cp -r ../contributions-wt/data_pending .
+          fi
+          if [ -d ../contributions-wt/data_pending/staged ]; then
+            cp -r ../contributions-wt/data_pending/staged/. data/
+          fi
+          if [ -f ../contributions-wt/data_pending/staged_candidates.txt ]; then
+            cp ../contributions-wt/data_pending/staged_candidates.txt scripts/new_species_candidates.txt
+          fi
+
+      - name: Check for real pending data
+        id: cheap_check
+        run: |
+          python - <<'PY'
+          import json, os
+
+          path = "data_pending/manifest.jsonl"
+          has_pending = False
+          if os.path.exists(path):
+              with open(path, encoding="utf-8") as handle:
+                  for line in handle:
+                      line = line.strip()
+                      if not line:
+                          continue
+                      if json.loads(line).get("status") == "pending":
+                          has_pending = True
+                          break
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write("has_real_pending=%s\n" % ("true" if has_pending else "false"))
+          PY
+
+      - name: Promote qualifying real candidates
+        id: pending
+        if: steps.cheap_check.outputs.has_real_pending == 'true'
+        run: python scripts/promote_pending.py --min-plantnet-score 0.70 --max-per-class 25
+
+      - name: Sync processed manifest back to contributions branch
+        if: steps.fetch_pending.outputs.has_branch == 'true' && steps.cheap_check.outputs.has_real_pending == 'true'
+        run: |
+          cp data_pending/manifest.jsonl ../contributions-wt/data_pending/manifest.jsonl
+          cd ../contributions-wt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data_pending/manifest.jsonl
+          git commit -m "chore(contrib): mark candidates processed by daily gather run" || echo "Nothing to update."
+          git push origin contributions
+
+      # Only fires when there's no real user data today. Rotates
+      # deterministically through existing classes, no state needed.
+      - name: Pick reinforcement rotation species
+        id: rotation
+        if: steps.cheap_check.outputs.has_real_pending != 'true'
+        run: |
+          python - <<'PY'
+          import datetime, os
+
+          from plantify import data
+
+          folders = data.list_class_folders()
+          species = ""
+          if folders:
+              idx = datetime.date.today().timetuple().tm_yday % len(folders)
+              species = data.species_of(folders[idx])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write("species=%s\n" % species)
+          PY
+
+      - name: Self-source reinforcement images from GBIF
+        id: reinforce
+        if: steps.cheap_check.outputs.has_real_pending != 'true' && steps.rotation.outputs.species != ''
+        continue-on-error: true
+        run: |
+          python scripts/fetch_species_dataset.py \
+            --species "${{ steps.rotation.outputs.species }}" \
+            --count 5 --min-fetched 1
+
+      # At most one new species per day. Path B (real visitor signal) takes
+      # priority over Path A (maintainer candidate list); the regression
+      # gate + mandatory human review in weekly-retrain.yml is the real
+      # protection against a bad new class, not anything here.
+      - name: Fetch new species (visitor-triggered signal, Path B)
+        id: new_species_b
+        if: steps.cheap_check.outputs.has_real_pending == 'true' && steps.pending.outputs.new_species_ready == 'true'
+        continue-on-error: true
+        run: |
+          python scripts/fetch_species_dataset.py \
+            --species "${{ steps.pending.outputs.new_species_name }}" \
+            --count 30
+
+      - name: Fetch new species (maintainer candidate list, Path A)
+        id: new_species_a
+        if: steps.new_species_b.outcome != 'success'
+        continue-on-error: true
+        run: |
+          python scripts/fetch_species_dataset.py \
+            --candidate-list scripts/new_species_candidates.txt \
+            --count 30
+
+      # Stage to contributions -- NOT main. Mirrors data/'s structure under
+      # data_pending/staged/; weekly-retrain.yml merges it into main's data/
+      # only once a retrain built on it passes the regression gate.
+      - name: Stage gathered data to contributions branch
+        if: steps.fetch_pending.outputs.has_branch == 'true'
+        run: |
+          mkdir -p ../contributions-wt/data_pending/staged
+          CHANGED=$(git status --porcelain -- data | awk '{print $2}')
+          if [ -n "$CHANGED" ]; then
+            for f in $CHANGED; do
+              rel="${f#data/}"
+              mkdir -p "../contributions-wt/data_pending/staged/$(dirname "$rel")"
+              cp "$f" "../contributions-wt/data_pending/staged/$rel"
+            done
+          fi
+          if [ -n "$(git status --porcelain -- scripts/new_species_candidates.txt)" ]; then
+            cp scripts/new_species_candidates.txt ../contributions-wt/data_pending/staged_candidates.txt
+          fi
+
+          cd ../contributions-wt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data_pending/staged
+          if [ -f data_pending/staged_candidates.txt ]; then
+            git add data_pending/staged_candidates.txt
+          fi
+          git commit -m "chore(contrib): daily gather $(date -u +%F)
+
+          Staged only -- not merged to main yet. weekly-retrain.yml pulls
+          this, trains on it, and only merges to main if the retrain passes
+          the regression gate. Created by a scheduled GitHub Actions
+          workflow (.github/workflows/daily-gather.yml), not a human
+          contributor." || echo "Nothing to stage today."
+          git push origin contributions
