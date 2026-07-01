@@ -24,8 +24,14 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Enable auto-merge for patch/minor updates
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+      # github-actions bumps are runner-action versions, not a semver API
+      # contract -- a "major" actions/checkout bump essentially never breaks
+      # actual usage, so always merge those. pip majors are real breakage
+      # risk (see the numpy 2.x incident), so skip those for manual review.
+      - name: Enable auto-merge
+        if: |
+          steps.metadata.outputs.package-ecosystem == 'github_actions' ||
+          steps.metadata.outputs.update-type != 'version-update:semver-major'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
