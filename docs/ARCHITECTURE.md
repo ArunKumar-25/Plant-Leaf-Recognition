@@ -120,12 +120,18 @@ See `src/plantify/data.py`'s `build_pending_row`/`append_pending`/
    within tolerance of baseline *and* no single class's recall regressed
    (an aggregate-only check can hide one class collapsing while the average
    looks fine).
-5. Accepted → commit `leaf_cnn/`, `class_labels.json`, `ood.npz`, `reports/`,
-   `data/`, and the manifest to `main`, authored as
+5. Accepted → opens a **pull request** (`leaf_cnn/`, `class_labels.json`,
+   `ood.npz`, `reports/`, `data/`, and the manifest, on an `auto-retrain/*`
+   branch), body includes the before/after accuracy and gate result, then
+   auto-merges it (`gh pr merge --admin`, so a later branch-protection rule
+   can't accidentally block the automation). Commits are authored as
    `github-actions[bot]` — **never the human maintainer's identity**; an
-   automated commit must say so honestly, not be styled to look like manual
-   work. Rejected → no commit, an issue is opened recording why, and
-   promoted rows revert to `pending` for the next cycle.
+   automated change must say so honestly, not be styled to look like manual
+   work. A PR (not a silent direct push) exists specifically so every model
+   update has a visible diff and review trail in GitHub's normal UI, even
+   though nothing waits on a human click. Rejected → no PR, an issue is
+   opened recording why, and promoted rows revert to `pending` for the next
+   cycle.
 
 ## Compatibility Layer
 

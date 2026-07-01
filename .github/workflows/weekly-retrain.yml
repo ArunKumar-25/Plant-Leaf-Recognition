@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   issues: write
+  pull-requests: write
 
 concurrency:
   group: weekly-retrain
@@ -154,12 +155,17 @@ jobs:
           git commit -m "chore(contrib): finalize candidate statuses after weekly gate" || echo "Nothing to update."
           git push origin contributions
 
-      - name: Commit improved model
+      - name: Open and auto-merge a PR with the improved model
         if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           rm -f reports/_baseline_metrics.json reports/_new_metrics.json
+
+          BRANCH="auto-retrain/$(date -u +%Y%m%d)-${{ github.run_number }}"
+          git checkout -b "$BRANCH"
           git add leaf_cnn class_labels.json ood.npz reports data data_pending/manifest.jsonl
           git commit -m "chore(model): weekly automated retrain
 
@@ -169,7 +175,26 @@ jobs:
 
           This commit was created by a scheduled GitHub Actions workflow
           (.github/workflows/weekly-retrain.yml), not a human contributor."
-          git push origin main
+          git push origin "$BRANCH"
+
+          PR_URL=$(gh pr create \
+            --repo "${{ github.repository }}" \
+            --base main \
+            --head "$BRANCH" \
+            --title "Weekly automated retrain: ${{ steps.gate.outputs.baseline_acc }}% -> ${{ steps.gate.outputs.new_acc }}%" \
+            --body "**Automated retrain, opened by \`.github/workflows/weekly-retrain.yml\` — not a human contributor.**
+
+          | | |
+          |---|---|
+          | Baseline accuracy | ${{ steps.gate.outputs.baseline_acc }}% |
+          | New accuracy | ${{ steps.gate.outputs.new_acc }}% |
+          | New training images this cycle | ${{ steps.pending.outputs.new_images_count }} |
+          | Regression gate | PASSED (\`${{ steps.gate.outputs.reason }}\`) |
+
+          Passed both the aggregate-accuracy and per-class-recall regression checks against the currently committed model. Auto-merging since the gate is the real safety check here — see \`docs/ARCHITECTURE.md\`'s 'Active Learning & Self-Retraining' section for the full pipeline.")
+
+          echo "Opened $PR_URL"
+          gh pr merge "$PR_URL" --squash --delete-branch --admin
 
       - name: Record rejected retrain
         if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept != 'true'
