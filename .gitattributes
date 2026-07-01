@@ -1,0 +1,21 @@
+# Without this, core.autocrlf (on by default on Windows) can misdetect
+# keras_metadata.pb as text and corrupt it with LF->CRLF conversion on
+# checkout — happened once, silently broke model loading. Everything under
+# artifacts/ and data/ is either a trained-model binary or an image; none of
+# it should ever go through line-ending translation.
+artifacts/** binary
+data/** binary
+data_pending/** binary
+samples/** binary
+*.npz binary
+*.pb binary
+*.tif binary
+*.tiff binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary

@@ -100,5 +100,5 @@ git commit -m "..."
 git push
 ```
 
-The trained model (`leaf_cnn/`, ~1.6 MB) and `samples/` are already committed,
+The trained model (`artifacts/model/`, ~1.6 MB) and `samples/` are already committed,
 so the app runs immediately after cloning — no data download required.

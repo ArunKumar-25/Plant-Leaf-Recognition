@@ -57,7 +57,7 @@ jobs:
           fi
 
       - name: Evaluate current committed model (baseline)
-        run: python scripts/evaluate_model.py --out reports/_baseline_metrics.json
+        run: python scripts/evaluate_model.py --out artifacts/reports/_baseline_metrics.json
 
       - name: Promote qualifying candidates
         id: pending
@@ -80,15 +80,15 @@ jobs:
 
       - name: Evaluate retrained model
         if: steps.pending.outputs.promoted_count != '0'
-        run: python scripts/evaluate_model.py --out reports/_new_metrics.json
+        run: python scripts/evaluate_model.py --out artifacts/reports/_new_metrics.json
 
       - name: Regression gate
         if: steps.pending.outputs.promoted_count != '0'
         id: gate
         run: |
           python scripts/regression_gate.py \
-            --baseline reports/_baseline_metrics.json \
-            --new reports/_new_metrics.json \
+            --baseline artifacts/reports/_baseline_metrics.json \
+            --new artifacts/reports/_new_metrics.json \
             --tolerance 0.01
 
       - name: Finalize manifest statuses after accepted gate
@@ -162,11 +162,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm -f reports/_baseline_metrics.json reports/_new_metrics.json
+          rm -f artifacts/reports/_baseline_metrics.json artifacts/reports/_new_metrics.json
 
           BRANCH="auto-retrain/$(date -u +%Y%m%d)-${{ github.run_number }}"
           git checkout -b "$BRANCH"
-          git add leaf_cnn class_labels.json ood.npz reports data data_pending/manifest.jsonl
+          git add artifacts data data_pending/manifest.jsonl
           git commit -m "chore(model): weekly automated retrain
 
           Baseline accuracy: ${{ steps.gate.outputs.baseline_acc }}%

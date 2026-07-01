@@ -1,6 +1,6 @@
-"""Evaluate the currently *committed* model (leaf_cnn/) against data/, without
-retraining. Used by the weekly self-retrain workflow to get a "before" baseline
-and an "after" score for the regression gate (see regression_gate.py).
+"""Evaluate the currently *committed* model (artifacts/model/) against data/,
+without retraining. Used by the weekly self-retrain workflow to get a "before"
+baseline and an "after" score for the regression gate (see regression_gate.py).
 
 Uses the same deterministic split (seed=42, same per-class percentages) as
 src/plantify/training.py's train_and_evaluate(), so a run before promoting new
@@ -10,7 +10,7 @@ an expected, normal trait of evaluating a continuously-growing dataset, not a
 bug; regression_gate.py's tolerance absorbs the resulting run-to-run noise.
 
 Usage:
-    python scripts/evaluate_model.py --out reports/_baseline_metrics.json
+    python scripts/evaluate_model.py --out artifacts/reports/_baseline_metrics.json
 """
 from __future__ import annotations
 

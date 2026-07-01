@@ -31,11 +31,11 @@ anything — see [Adding a new ML capability](#adding-a-new-ml-capability).
 
 1. Data is read from `data/<class-folder>/`.
 2. Training script extracts MobileNetV2 embeddings and trains a classification head.
-3. Outputs are saved to:
-   - `leaf_cnn/` model
-   - `class_labels.json`
-   - `ood.npz`
-   - `reports/` charts and metrics
+3. Outputs are saved to `artifacts/`:
+   - `artifacts/model/`
+   - `artifacts/class_labels.json`
+   - `artifacts/ood.npz`
+   - `artifacts/reports/` charts and metrics
 4. Inference path loads model + labels + OOD references and returns prediction decision.
 
 ## Decision Funnel
@@ -53,7 +53,7 @@ every layer a new ML feature needs:
 
 1. **Train** — add the model/pipeline under `src/plantify/` (a new module,
    following `training.py`'s shape: data in, artifacts out under a clearly
-   named directory like `leaf_cnn/`). Export whatever the API needs to load
+   named subdirectory of `artifacts/`). Export whatever the API needs to load
    (model weights, label list, any thresholding data).
 2. **Serve** — add an endpoint to `api/main.py` (e.g. `POST /predict-disease`)
    that loads the model once at startup (see `_load_once()`) and returns a
@@ -120,9 +120,9 @@ See `src/plantify/data.py`'s `build_pending_row`/`append_pending`/
    within tolerance of baseline *and* no single class's recall regressed
    (an aggregate-only check can hide one class collapsing while the average
    looks fine).
-5. Accepted → opens a **pull request** (`leaf_cnn/`, `class_labels.json`,
-   `ood.npz`, `reports/`, `data/`, and the manifest, on an `auto-retrain/*`
-   branch), body includes the before/after accuracy and gate result, then
+5. Accepted → opens a **pull request** (`artifacts/`, `data/`, and the
+   manifest, on an `auto-retrain/*` branch), body includes the before/after
+   accuracy and gate result, then
    auto-merges it (`gh pr merge --admin`, so a later branch-protection rule
    can't accidentally block the automation). Commits are authored as
    `github-actions[bot]` — **never the human maintainer's identity**; an
