@@ -27,8 +27,6 @@ jobs:
         env:
           PLANTIFY_API_BASE: ${{ vars.PLANTIFY_API_BASE }}
         run: |
-          echo "DEBUG: resolved value length = ${#PLANTIFY_API_BASE}" > web/debug-var.txt
-          echo "DEBUG: resolved value = [$PLANTIFY_API_BASE]" >> web/debug-var.txt
           if [ -n "$PLANTIFY_API_BASE" ]; then
             printf '(function () {\n    "use strict";\n\n    window.PLANTIFY_API_BASE = "%s";\n})();\n' "$PLANTIFY_API_BASE" > web/js/config.js
           fi
