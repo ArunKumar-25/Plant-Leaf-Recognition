@@ -33,8 +33,7 @@ def test_plantnet_fallback_is_opt_in(monkeypatch):
     monkeypatch.setattr(api_main, "PLANTNET_PUBLIC_FALLBACK_ENABLED", False)
     monkeypatch.setattr(api_main.plantnet_client, "identify", lambda _: (_ for _ in ()).throw(AssertionError))
 
-    result, _debug = api_main._maybe_consult_plantnet("leaf.jpg", "unknown")
-    assert result is None
+    assert api_main._maybe_consult_plantnet("leaf.jpg", "unknown") is None
 
 
 def test_rejects_unsupported_content_type(monkeypatch):

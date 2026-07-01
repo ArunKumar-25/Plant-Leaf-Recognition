@@ -38,7 +38,6 @@ def identify(image_path: str, organ: str = "leaf", max_results: int = 3, timeout
     if not key:
         return {"error": "no_key"}
 
-    resp = None
     try:
         with open(image_path, "rb") as handle:
             resp = requests.post(
@@ -57,17 +56,16 @@ def identify(image_path: str, organ: str = "leaf", max_results: int = 3, timeout
             return {"error": "bad_key"}
         if resp.status_code == 429:
             return {"error": "quota"}
+        if resp.status_code == 404:
+            # Pl@ntNet's own "no species matched this image" response, not a
+            # connectivity problem — treat it as a normal empty result.
+            return {"results": []}
         resp.raise_for_status()
         data = resp.json()
     except requests.Timeout:
         return {"error": "timeout"}
-    except Exception as exc:
-        return {
-            "error": "request_failed",
-            "_debug_exception": "%s: %s" % (type(exc).__name__, exc),
-            "_debug_status_code": resp.status_code if resp is not None else None,
-            "_debug_response_body": resp.text[:500] if resp is not None else None,
-        }
+    except Exception:
+        return {"error": "request_failed"}
 
     results = []
     for row in data.get("results", [])[:max_results]:
