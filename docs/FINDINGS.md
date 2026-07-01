@@ -58,7 +58,7 @@ Linköping University and compacts them, restoring the full 1,125-image dataset.
 A from-scratch grayscale CNN on 15 classes only reached **68%** — the elms and
 willows (visually similar) confused each other badly. Switching to **transfer
 learning** (MobileNetV2 ImageNet features + a small trainable head, using leaf
-colour) lifted the held-out test accuracy to **99.6%** with every species at
+colour) lifted the held-out test accuracy to **98.7%**, with most species at
 ~1.00 F1. That model (`leaf_cnn/`, ~10 MB) is what ships.
 
 ## Honest scope
@@ -66,7 +66,7 @@ colour) lifted the held-out test accuracy to **99.6%** with every species at
 The model is trained on clean white-background scans, so real-world photos on busy
 backgrounds remain out of domain — the guard rejects them rather than guessing.
 The report's SVM/GLCM narrative still doesn't match the code; align it to the
-MobileNetV2 pipeline and the 99.6% metric in `reports/metrics.md`.
+MobileNetV2 pipeline and the metric in `reports/metrics.md`.
 
 ## Reproduce
 
