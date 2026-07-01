@@ -21,6 +21,12 @@ updates:
       # 4.13) so the numpy ignore rule doesn't catch it. Confirmed twice --
       # this exact combination broke main via the pip-minor-patch group.
       - dependency-name: "opencv-python-headless"
+      # tensorflow-cpu 2.15->2.21 (classified "minor") pulls in Keras 3,
+      # which flatly refuses to load the committed artifacts/model/ (legacy
+      # SavedModel format) -- confirmed by actually loading the model under
+      # both versions. Requires a deliberate re-save/migration, not an
+      # automatic bump.
+      - dependency-name: "tensorflow-cpu"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
