@@ -73,12 +73,18 @@ def _build_augmenter() -> Sequential:
     # Leaf scans have no canonical orientation, so flips/full rotation are
     # free signal, not distortion. Zoom/contrast add mild lighting/framing
     # robustness without risking cropping out the leaf.
+    # Explicit seeds -- these layers keep their own internal RNG state that
+    # tf.random.set_seed() alone doesn't reliably pin across runs, which was
+    # letting retrains on near-identical data land a few % apart purely from
+    # augmentation randomness (confirmed live: two retrains differing by
+    # only 4 images landed within 0.02% of each other, both ~3% below
+    # baseline -- the noise was drowning out any real signal from the data).
     return Sequential(
         [
-            RandomFlip("horizontal_and_vertical"),
-            RandomRotation(0.5),
-            RandomZoom(0.1),
-            RandomContrast(0.1),
+            RandomFlip("horizontal_and_vertical", seed=SEED),
+            RandomRotation(0.5, seed=SEED),
+            RandomZoom(0.1, seed=SEED),
+            RandomContrast(0.1, seed=SEED),
         ],
         name="augmentation",
     )
