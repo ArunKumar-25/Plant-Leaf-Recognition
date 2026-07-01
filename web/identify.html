@@ -6,21 +6,24 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
-    <title>Plantify - Identify a Leaf</title>
+    <title>Plantify — Identify a Leaf</title>
 
-    <link rel="icon" href="img/core-img/favicon.ico">
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="css/site-overrides.css">
-    <style>
-        #preview { max-width: 100%; max-height: 320px; display: none; margin-bottom: 20px; border-radius: 6px; }
-        .result-card { display: none; padding: 20px; border-radius: 6px; margin-top: 20px; }
-        .result-card.ok { background: #e8f5e9; border: 1px solid #70c745; }
-        .result-card.uncertain { background: #fff8e1; border: 1px solid #f0ad4e; }
-        .result-card.unknown { background: #f5f5f5; border: 1px solid #bbb; }
-        .result-card.error { background: #fdecea; border: 1px solid #e74c3c; display: none; }
-        .top-k-list { margin: 10px 0 0; padding-left: 18px; }
-        #identify-btn[disabled] { opacity: 0.6; cursor: not-allowed; }
-    </style>
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Plantify — Identify a Leaf">
+    <meta property="og:description" content="Upload a leaf photo and get an instant species identification from Plantify.">
+    <meta property="og:image" content="img/og-cover.png">
+    <meta property="og:url" content="https://arunkumar-25.github.io/Plantify/identify.html">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Plantify — Identify a Leaf">
+    <meta name="twitter:description" content="Upload a leaf photo and get an instant species identification from Plantify.">
+    <meta name="twitter:image" content="img/og-cover.png">
+    <meta name="theme-color" content="#2f4a34">
+
+    <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/main.css">
 
     <script src="js/config.js"></script>
 </head>
@@ -28,75 +31,66 @@
 <body data-page="identify">
     <div id="partial-header"></div>
 
-    <div class="breadcrumb-area">
-        <div class="top-breadcrumb-area bg-img bg-overlay d-flex align-items-center justify-content-center" style="background-image: url(img/bg-img/24.jpg);">
-            <h2>Identify a Leaf</h2>
-        </div>
-        <div class="container">
-            <div class="row">
-                <div class="col-12">
-                    <nav aria-label="breadcrumb">
-                        <ol class="breadcrumb">
-                            <li class="breadcrumb-item"><a href="index.html"><i class="fa fa-home"></i> Home</a></li>
-                            <li class="breadcrumb-item active" aria-current="page">Identify</li>
-                        </ol>
-                    </nav>
-                </div>
-            </div>
+    <div class="page-header">
+        <div class="container reveal">
+            <span class="eyebrow">Identify</span>
+            <h1>Upload a leaf photo</h1>
+            <p class="lede">Best results come from a single leaf on a plain, well-lit background.
+                See the <a href="blog.html" class="hero-link">photo tips</a> for more.</p>
         </div>
     </div>
 
-    <section class="contact-area">
-        <div class="container">
-            <div class="row justify-content-center">
-                <div class="col-12 col-lg-7">
-                    <div class="section-heading">
-                        <h2>UPLOAD A LEAF PHOTO</h2>
-                        <p>Best results come from a single leaf on a plain, well-lit background.
-                            See the <a href="blog.html">photo tips</a> for more.</p>
+    <section class="section">
+        <div class="container identify-grid">
+            <div class="upload-card reveal">
+                <div class="dropzone" id="dropzone">
+                    <img id="preview" alt="Selected leaf preview">
+                    <svg class="icon" viewBox="0 0 24 24"><path d="M12 16V4M12 4 7 9M12 4l5 5"></path><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></svg>
+                    <div class="form-group">
+                        <input type="file" id="leaf-file" class="visually-hidden-file"
+                               accept="image/jpeg,image/png,image/bmp,image/tiff,image/webp">
+                        <label for="leaf-file" class="btn btn-outline">Choose a leaf photo</label>
+                        <span id="leaf-file-name" class="file-upload-name">No file selected</span>
                     </div>
+                </div>
+                <button id="identify-btn" class="btn btn-primary" disabled>
+                    <span class="spinner" aria-hidden="true"></span>
+                    <span id="identify-btn-label">Identify</span>
+                </button>
+                <p class="tips-note">Accepted formats: JPG, PNG, BMP, TIFF, WebP.</p>
+            </div>
 
-                    <div class="contact-form-area mb-50">
-                        <img id="preview" alt="Selected leaf preview">
+            <div class="results-column reveal" style="transition-delay: 100ms;">
+                <div id="result-placeholder" class="result-placeholder">
+                    A result will appear here once you identify a photo.
+                </div>
 
-                        <div class="form-group">
-                            <div class="file-upload-control">
-                                <input type="file" id="leaf-file" class="visually-hidden-file"
-                                       accept="image/jpeg,image/png,image/bmp,image/tiff,image/webp">
-                                <label for="leaf-file" class="btn alazea-btn file-upload-btn">Choose a leaf photo</label>
-                                <span id="leaf-file-name" class="file-upload-name text-muted">No file selected</span>
-                            </div>
-                        </div>
-                        <button id="identify-btn" class="btn alazea-btn mt-15" disabled>Identify</button>
-                    </div>
+                <div id="result-ok" class="result-card ok">
+                    <h5>Match found</h5>
+                    <p><strong id="ok-species"></strong> — <span id="ok-confidence" class="confidence-tag"></span> confidence</p>
+                    <p style="color: var(--ink-faint); margin-bottom: 0;">Other possibilities:</p>
+                    <ul id="ok-topk" class="top-k-list"></ul>
+                </div>
 
-                    <div id="result-ok" class="result-card ok">
-                        <h5>Match found</h5>
-                        <p><strong id="ok-species"></strong> — <span id="ok-confidence"></span> confidence</p>
-                        <p class="text-muted mb-0">Other possibilities:</p>
-                        <ul id="ok-topk" class="top-k-list"></ul>
-                    </div>
+                <div id="result-uncertain" class="result-card uncertain">
+                    <h5>Possible match, low confidence</h5>
+                    <p><strong id="uncertain-species"></strong> — <span id="uncertain-confidence" class="confidence-tag"></span> confidence</p>
+                    <p style="color: var(--ink-faint); margin-bottom: 0;">Other possibilities:</p>
+                    <ul id="uncertain-topk" class="top-k-list"></ul>
+                    <p class="tips-note" style="margin-top: 14px;">Try a clearer photo — a single leaf on a plain background usually
+                        works best (see <a href="blog.html" class="hero-link">photo tips</a>).</p>
+                </div>
 
-                    <div id="result-uncertain" class="result-card uncertain">
-                        <h5>Possible match, low confidence</h5>
-                        <p><strong id="uncertain-species"></strong> — <span id="uncertain-confidence"></span> confidence</p>
-                        <p class="text-muted mb-0">Other possibilities:</p>
-                        <ul id="uncertain-topk" class="top-k-list"></ul>
-                        <p class="mt-15">Try a clearer photo — a single leaf on a plain background usually
-                            works best (see <a href="blog.html">photo tips</a>).</p>
-                    </div>
+                <div id="result-unknown" class="result-card unknown">
+                    <h5>Couldn't confidently identify this leaf</h5>
+                    <p style="margin: 0;">This photo doesn't look like a close match for any of the 15 species Plantify
+                        knows. Try a clearer photo, or if you're sure this is a real species we're
+                        missing, <a href="https://github.com/ArunKumar-25/Plantify" class="hero-link" target="_blank" rel="noopener">let us know on GitHub</a>.</p>
+                </div>
 
-                    <div id="result-unknown" class="result-card unknown">
-                        <h5>Couldn't confidently identify this leaf</h5>
-                        <p>This photo doesn't look like a close match for any of the 15 species Plantify
-                            knows. Try a clearer photo, or if you're sure this is a real species we're
-                            missing, <a href="https://github.com/ArunKumar-25/Plantify">let us know on GitHub</a>.</p>
-                    </div>
-
-                    <div id="result-error" class="result-card error">
-                        <h5>Something went wrong</h5>
-                        <p id="error-message"></p>
-                    </div>
+                <div id="result-error" class="result-card error">
+                    <h5>Something went wrong</h5>
+                    <p id="error-message" style="margin: 0;"></p>
                 </div>
             </div>
         </div>
@@ -104,12 +98,8 @@
 
     <div id="partial-footer"></div>
 
-    <script src="js/jquery/jquery-2.2.4.min.js"></script>
-    <script src="js/bootstrap/popper.min.js"></script>
-    <script src="js/bootstrap/bootstrap.min.js"></script>
-    <script src="js/plugins/plugins.js"></script>
     <script src="js/partials.js"></script>
-    <script src="js/active.js"></script>
+    <script src="js/reveal.js"></script>
     <script src="js/identify.js"></script>
 </body>
 </html>

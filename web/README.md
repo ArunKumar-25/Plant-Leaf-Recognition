@@ -1,11 +1,13 @@
 # Plantify website
 
-Static HTML/CSS/JS frontend. No build step, no framework — header and footer
-are loaded at runtime from [`partials/`](partials/) via `fetch()` (see
-[js/partials.js](js/partials.js)), so the site must be served over HTTP, not
-opened via `file://` (`fetch()` is blocked by CORS on `file://` in most
-browsers). The only dynamic piece is [identify.html](identify.html), which
-calls the FastAPI backend in [`../api/`](../api/main.py).
+Static HTML/CSS/JS frontend. No build step, no framework — a single hand-written
+stylesheet ([css/main.css](css/main.css)) and vanilla JS, no jQuery/Bootstrap/
+plugin dependencies. Header and footer are loaded at runtime from
+[`partials/`](partials/) via `fetch()` (see [js/partials.js](js/partials.js)),
+so the site must be served over HTTP, not opened via `file://` (`fetch()` is
+blocked by CORS on `file://` in most browsers). The only dynamic piece is
+[identify.html](identify.html), which calls the FastAPI backend in
+[`../api/`](../api/main.py).
 
 ## Run locally
 
@@ -33,9 +35,11 @@ Two things have to agree on the API's URL:
 
 1. **API side** — `CORS_ALLOW_ORIGINS` env var (above) must include whatever
    origin you're serving `web/` from.
-2. **Frontend side** — the inline `window.PLANTIFY_API_BASE` line at the top
-   of [identify.html](identify.html) must point at the API's actual host/port.
-   Edit that one line for a production deploy (e.g. your hosted API's URL).
+2. **Frontend side** — `identify.html` loads [js/config.js](js/config.js),
+   which sets `window.PLANTIFY_API_BASE`. Locally it defaults to
+   `http://localhost:8000`; in production it's generated at deploy time by
+   [`../.github/workflows/deploy-pages.yml`](../.github/workflows/deploy-pages.yml)
+   from the `PLANTIFY_API_BASE` repository variable — no manual file edits needed.
 
 See [`../docs/INTEGRATION.md`](../docs/INTEGRATION.md) for the full API contract.
 
@@ -67,7 +71,7 @@ GitHub Pages' simple "deploy from branch, folder" UI, which only supports
 **GitHub Actions** (not "Deploy from a branch" — that option can't target a
 `/web` subfolder, which is why this repo uses the Actions-based path).
 
-Before relying on a production deploy: update the hardcoded API URL in
-`identify.html` (see "Wiring notes" above) to point at your hosted API, and
-add the Pages URL (`https://<you>.github.io/<repo>/`) to the API's
+Before relying on a production deploy: set the `PLANTIFY_API_BASE` repository
+variable (see "Wiring notes" above) to your hosted API's URL, and add the
+Pages URL (`https://<you>.github.io/<repo>/`) to the API's
 `CORS_ALLOW_ORIGINS`.

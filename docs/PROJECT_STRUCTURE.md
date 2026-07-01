@@ -18,7 +18,8 @@ Plant-Leaf-Recognition/
 │   ├── identify.html               # Leaf identification capability (calls api/ via fetch)
 │   ├── blog.html                   # How identification works, photo tips, species list
 │   ├── partials/                   # header.html / footer.html, fetched + injected by js/partials.js
-│   ├── css/ js/ img/ fonts/ style.css
+│   ├── css/main.css                # single hand-written stylesheet, no framework
+│   ├── js/ img/                    # vanilla JS (no jQuery), real dataset leaf photos as imagery
 │   └── README.md                   # How to serve web/ locally + CORS/API_BASE wiring + GitHub Pages deploy
 ├── docs/
 │   ├── ARCHITECTURE.md           # Includes "Adding a new ML capability" — the extension pattern

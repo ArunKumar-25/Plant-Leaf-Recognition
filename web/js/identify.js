@@ -14,16 +14,38 @@
         unknown: document.getElementById("result-unknown"),
         error: document.getElementById("result-error"),
     };
+    const placeholder = document.getElementById("result-placeholder");
 
     function hideAllCards() {
         Object.values(cards).forEach(function (el) { el.style.display = "none"; });
+        if (placeholder) placeholder.style.display = "none";
     }
 
     function renderTopK(listEl, topK) {
         listEl.innerHTML = "";
         topK.forEach(function (entry) {
+            const pct = Math.round(entry.confidence * 100);
             const li = document.createElement("li");
-            li.textContent = entry.species + " (" + Math.round(entry.confidence * 100) + "%)";
+            li.className = "top-k-row";
+
+            const label = document.createElement("div");
+            label.className = "top-k-label";
+            const species = document.createElement("span");
+            species.textContent = entry.species;
+            const pctEl = document.createElement("span");
+            pctEl.className = "top-k-pct";
+            pctEl.textContent = pct + "%";
+            label.appendChild(species);
+            label.appendChild(pctEl);
+
+            const bar = document.createElement("div");
+            bar.className = "top-k-bar";
+            const fill = document.createElement("span");
+            fill.style.width = pct + "%";
+            bar.appendChild(fill);
+
+            li.appendChild(label);
+            li.appendChild(bar);
             listEl.appendChild(li);
         });
     }
@@ -75,27 +97,57 @@
         return res.json();
     }
 
-    fileInput.addEventListener("change", function () {
+    const dropzone = document.getElementById("dropzone");
+    const btnLabel = document.getElementById("identify-btn-label");
+
+    function applyFile(file) {
         hideAllCards();
-        const file = fileInput.files[0];
         fileNameEl.textContent = file ? file.name : "No file selected";
         if (!file) {
             preview.style.display = "none";
             identifyBtn.disabled = true;
+            if (dropzone) dropzone.classList.remove("has-file");
             return;
         }
         preview.src = URL.createObjectURL(file);
         preview.style.display = "block";
         identifyBtn.disabled = false;
+        if (dropzone) dropzone.classList.add("has-file");
+    }
+
+    fileInput.addEventListener("change", function () {
+        applyFile(fileInput.files[0]);
     });
+
+    if (dropzone) {
+        ["dragenter", "dragover"].forEach(function (evt) {
+            dropzone.addEventListener(evt, function (e) {
+                e.preventDefault();
+                dropzone.classList.add("drag-active");
+            });
+        });
+        ["dragleave", "dragend"].forEach(function (evt) {
+            dropzone.addEventListener(evt, function () {
+                dropzone.classList.remove("drag-active");
+            });
+        });
+        dropzone.addEventListener("drop", function (e) {
+            e.preventDefault();
+            dropzone.classList.remove("drag-active");
+            const file = e.dataTransfer.files && e.dataTransfer.files[0];
+            if (!file) return;
+            fileInput.files = e.dataTransfer.files;
+            applyFile(file);
+        });
+    }
 
     identifyBtn.addEventListener("click", async function () {
         const file = fileInput.files[0];
         if (!file) return;
 
         identifyBtn.disabled = true;
-        const originalText = identifyBtn.textContent;
-        identifyBtn.textContent = "Identifying...";
+        identifyBtn.classList.add("is-loading");
+        if (btnLabel) btnLabel.textContent = "Identifying...";
         hideAllCards();
 
         try {
@@ -105,7 +157,8 @@
             renderError(err.message || "Couldn't reach the prediction service. Is the API running?");
         } finally {
             identifyBtn.disabled = false;
-            identifyBtn.textContent = originalText;
+            identifyBtn.classList.remove("is-loading");
+            if (btnLabel) btnLabel.textContent = "Identify";
         }
     });
 })();

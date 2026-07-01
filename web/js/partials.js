@@ -1,27 +1,37 @@
-(function ($) {
-    'use strict';
+(function () {
+    "use strict";
 
     function markActiveNav() {
-        var current = document.body.getAttribute('data-page');
+        var current = document.body.getAttribute("data-page");
         if (!current) return;
         var link = document.querySelector('[data-nav="' + current + '"]');
-        if (link) link.classList.add('active');
+        if (link) link.classList.add("active");
+    }
+
+    function initMobileNav() {
+        var toggle = document.getElementById("nav-toggle");
+        var links = document.getElementById("nav-links");
+        if (!toggle || !links) return;
+        toggle.addEventListener("click", function () {
+            var open = links.classList.toggle("open");
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        });
+        links.addEventListener("click", function (event) {
+            if (event.target.tagName === "A") {
+                links.classList.remove("open");
+                toggle.setAttribute("aria-expanded", "false");
+            }
+        });
     }
 
     function afterHeaderLoaded() {
         markActiveNav();
+        initMobileNav();
+    }
 
-        // Preloader and nav widgets live inside the header partial, so their
-        // init has to run after injection, not at initial script load.
-        $('.preloader').fadeOut('slow', function () {
-            $(this).remove();
-        });
-        if ($.fn.classyNav) {
-            $('#alazeaNav').classyNav();
-        }
-        if ($.fn.sticky) {
-            $('.alazea-main-menu').sticky({ topSpacing: 0 });
-        }
+    function afterFooterLoaded() {
+        var yearEl = document.getElementById("footer-year");
+        if (yearEl) yearEl.textContent = new Date().getFullYear();
     }
 
     function inject(selector, url, after) {
@@ -34,13 +44,12 @@
                 if (after) after();
             })
             .catch(function (err) {
-                console.error('Failed to load partial: ' + url, err);
+                console.error("Failed to load partial: " + url, err);
             });
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
-        inject('#partial-header', 'partials/header.html', afterHeaderLoaded);
-        inject('#partial-footer', 'partials/footer.html');
+    document.addEventListener("DOMContentLoaded", function () {
+        inject("#partial-header", "partials/header.html", afterHeaderLoaded);
+        inject("#partial-footer", "partials/footer.html", afterFooterLoaded);
     });
-
-})(jQuery);
+})();
