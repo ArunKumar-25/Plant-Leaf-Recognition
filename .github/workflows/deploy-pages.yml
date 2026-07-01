@@ -23,6 +23,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Configure API endpoint
+        env:
+          PLANTIFY_API_BASE: ${{ vars.PLANTIFY_API_BASE }}
+        run: |
+          if [ -n "$PLANTIFY_API_BASE" ]; then
+            printf '(function () {\n    "use strict";\n\n    window.PLANTIFY_API_BASE = "%s";\n})();\n' "$PLANTIFY_API_BASE" > web/js/config.js
+          fi
       - name: Upload web/ as Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
