@@ -1,10 +1,10 @@
 name: Weekly self-retrain
 
 # Trains weekly on whatever daily-gather.yml has staged on the contributions
-# branch. Owns baseline eval, retrain, regression gate, and the PR/merge
-# decision. Staged data only reaches main via a gate-accepted PR; a rejected
-# retrain leaves main untouched. See docs/ARCHITECTURE.md's
-# "Active Learning & Self-Retraining" section.
+# branch. Owns baseline eval, retrain, and the regression gate. An accepted
+# retrain opens or updates that month's PR -- never auto-merges, always
+# waits for manual review. A rejected retrain leaves main untouched. See
+# docs/ARCHITECTURE.md's "Active Learning & Self-Retraining" section.
 
 on:
   schedule:
@@ -165,7 +165,14 @@ jobs:
           git commit -m "chore(contrib): finalize candidate statuses after weekly gate" || echo "Nothing to update."
           git push origin contributions
 
-      - name: Open a PR with the retrained model
+      # Never auto-merges -- every accepted retrain always opens or updates a
+      # PR for manual review. One PR per calendar month: each week's run
+      # within the same month force-pushes a fresh single commit onto that
+      # same branch/PR (rather than trying to layer commits on the existing
+      # branch tip, which would conflict with this run's own uncommitted
+      # retrained-model changes) -- a PR comment records each week's numbers
+      # so the history is still visible. A new month gets a fresh branch/PR.
+      - name: Open or update this month's retrain PR
         if: steps.cheap_check.outputs.has_new_data == 'true' && steps.gate.outputs.accept == 'true'
         id: open_pr
         env:
@@ -178,62 +185,60 @@ jobs:
           rm -f artifacts/reports/_baseline_metrics.json artifacts/reports/_new_metrics.json
 
           if [ "$NEW_SPECIES_INTRODUCED" = "true" ]; then
-            SPECIES_NOTE="New species introduced this cycle: $NEW_SPECIES_NAMES (sourced from GBIF via daily-gather.yml, not real user photos)."
-            REVIEW_NOTE="**Requires human review before merging — this cycle introduced new species (\`$NEW_SPECIES_NAMES\`) sourced from GBIF.** Images are field/habit photos (not the clean studio scans the other species use) and have never been reviewed by a person. Check \`data/<new-folder>/ATTRIBUTION.md\` for licensing, and eyeball a few images for quality/domain-fit before merging. **This PR will not auto-merge.**"
+            SPECIES_NOTE="New species introduced this run: $NEW_SPECIES_NAMES (sourced from GBIF via daily-gather.yml, not real user photos). Check its ATTRIBUTION.md for licensing and eyeball a few images for quality/domain-fit."
           else
-            SPECIES_NOTE="Existing-class reinforcement only — no new species this cycle."
-            REVIEW_NOTE="Auto-merging since the regression gate is the real safety check here for existing-class reinforcement — see \`docs/ARCHITECTURE.md\`'s 'Active Learning & Self-Retraining' section."
+            SPECIES_NOTE="Existing-class reinforcement only this run -- no new species."
           fi
 
-          BRANCH="auto-retrain/$(date -u +%Y%m%d)-${{ github.run_number }}"
-          git checkout -b "$BRANCH"
+          MONTH="$(date -u +%Y-%m)"
+          BRANCH="auto-retrain/$MONTH"
+
+          EXISTING_PR="$(gh pr list --repo "${{ github.repository }}" --base main --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+
+          # Current HEAD is main plus this run's uncommitted retrained-model
+          # changes -- branch from here (not the old PR branch, which would
+          # conflict with those uncommitted changes) and force-push over
+          # whatever was there before.
+          git checkout -B "$BRANCH"
           git add artifacts data scripts/new_species_candidates.txt data_pending/manifest.jsonl
-          git commit -m "chore(model): weekly automated retrain
+          git commit -m "chore(model): retrain $(date -u +%F)
 
           Baseline accuracy: ${{ steps.gate.outputs.baseline_acc }}%
           New accuracy:      ${{ steps.gate.outputs.new_acc }}%
           $SPECIES_NOTE
 
-          Trained on data/ as accumulated by daily-gather.yml over the past
-          week. This commit was created by a scheduled GitHub Actions
-          workflow (.github/workflows/weekly-retrain.yml), not a human
-          contributor."
-          git push origin "$BRANCH"
+          Trained on data/ as accumulated by daily-gather.yml this week.
+          This commit was created by a scheduled GitHub Actions workflow
+          (.github/workflows/weekly-retrain.yml), not a human contributor." || echo "Nothing new to commit."
+          git push origin "$BRANCH" --force
 
-          PR_URL=$(gh pr create \
-            --repo "${{ github.repository }}" \
-            --base main \
-            --head "$BRANCH" \
-            --title "Weekly automated retrain: ${{ steps.gate.outputs.baseline_acc }}% -> ${{ steps.gate.outputs.new_acc }}%" \
-            --body "**Automated retrain, opened by \`.github/workflows/weekly-retrain.yml\` — not a human contributor.**
+          if [ -n "$EXISTING_PR" ]; then
+            PR_URL="https://github.com/${{ github.repository }}/pull/$EXISTING_PR"
+            gh pr comment "$PR_URL" --body "Updated with this week's retrain: ${{ steps.gate.outputs.baseline_acc }}% -> ${{ steps.gate.outputs.new_acc }}%. $SPECIES_NOTE"
+          else
+            PR_URL=$(gh pr create \
+              --repo "${{ github.repository }}" \
+              --base main \
+              --head "$BRANCH" \
+              --title "$MONTH automated retrain" \
+              --body "**Automated retrain, opened by \`.github/workflows/weekly-retrain.yml\` — not a human contributor.**
+
+          Accumulates every accepted weekly retrain for $MONTH into this one PR
+          -- each week's run updates this same PR rather than opening a new one.
+          **Never auto-merges — always waits for manual review and merge.**
 
           | | |
           |---|---|
-          | Baseline accuracy | ${{ steps.gate.outputs.baseline_acc }}% |
-          | New accuracy | ${{ steps.gate.outputs.new_acc }}% |
+          | Latest baseline accuracy | ${{ steps.gate.outputs.baseline_acc }}% |
+          | Latest new accuracy | ${{ steps.gate.outputs.new_acc }}% |
           | Regression gate | PASSED (\`${{ steps.gate.outputs.reason }}\`) |
 
-          Trained on \`data/\` as accumulated daily by \`.github/workflows/daily-gather.yml\` over the past week.
-
-          $REVIEW_NOTE")
+          $SPECIES_NOTE")
+          fi
 
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-          echo "Opened $PR_URL"
-
-      - name: Auto-merge (existing-class reinforcement only)
-        if: steps.cheap_check.outputs.has_new_data == 'true' && steps.gate.outputs.accept == 'true' && steps.gate.outputs.new_species_introduced != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh pr merge "${{ steps.open_pr.outputs.pr_url }}" --squash --delete-branch --admin
-
-      - name: Flag for required human review (new species introduced)
-        if: steps.cheap_check.outputs.has_new_data == 'true' && steps.gate.outputs.accept == 'true' && steps.gate.outputs.new_species_introduced == 'true'
-        run: |
-          {
-            echo "## New species introduced — PR requires human review"
-            echo "${{ steps.open_pr.outputs.pr_url }} was opened but NOT auto-merged."
-            echo "Species: ${{ steps.gate.outputs.new_species_names }}"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "## Retrain accepted — PR updated" >> "$GITHUB_STEP_SUMMARY"
+          echo "$PR_URL — not auto-merged, needs manual review." >> "$GITHUB_STEP_SUMMARY"
 
       # Accepted retrain's staged data is now part of the PR/branch history --
       # clear it so next week doesn't re-stage already-merged files.

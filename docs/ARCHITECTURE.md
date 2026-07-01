@@ -196,20 +196,20 @@ does. Nothing here ever touches `main`.
    within tolerance of baseline, no single existing class's recall
    regressed, and any freshly-introduced class clears an absolute recall
    floor (`NEW_SPECIES_MIN_RECALL`, default 0.60).
-3. Accepted → opens a **pull request** (`artifacts/`, `data/` — now
-   including this week's merged staged additions — and the manifest, on an
-   `auto-retrain/*` branch), body includes the before/after accuracy and
-   gate result, then clears the now-merged files from `contributions`'s
-   staging area so next week doesn't re-process them. **Auto-merges**
-   (`gh pr merge --admin`) only if no new species was introduced this week;
-   a week that introduced one is left open, explicitly flagged for required
-   human review (see "Growing to new species" below) — never auto-merged.
-   Commits are authored as `github-actions[bot]` — **never the human
-   maintainer's identity**; an automated change must say so honestly, not
-   be styled to look like manual work. A PR (not a silent direct push)
-   exists specifically so every model update has a visible diff and review
-   trail in GitHub's normal UI, even though nothing waits on a human click
-   for the reinforcement-only path.
+3. Accepted → opens or updates **one pull request per calendar month**
+   (`artifacts/`, `data/` — now including this week's merged staged
+   additions — and the manifest, on an `auto-retrain/YYYY-MM` branch), body
+   includes the before/after accuracy and gate result, then clears the
+   now-merged files from `contributions`'s staging area so next week doesn't
+   re-process them. A second accepted retrain within the same month
+   force-pushes a fresh commit onto that same branch/PR (with a comment
+   recording that week's numbers) instead of opening a new one; a new
+   calendar month starts a fresh branch/PR. **Never auto-merges** — every
+   accepted retrain always waits for manual review and merge, regardless of
+   whether a new species was introduced. Commits are authored as
+   `github-actions[bot]` — **never the human maintainer's identity**; an
+   automated change must say so honestly, not be styled to look like manual
+   work.
    Rejected → **`main` is never touched** (exactly like the pipeline's
    original, single-workflow design) — no PR, an issue is opened recording
    why, promoted manifest rows revert to `pending`, and the staged data
@@ -291,11 +291,9 @@ flowchart TD
         RevertRows --> OpenIssue(["Open GitHub issue<br/>recording the rejection"])
 
         GateAccept --> FinalizeRows["Finalize manifest rows to<br/>accepted_committed"]
-        FinalizeRows --> OpenPR["Open PR (artifacts/ + data/,<br/>now includes this week's<br/>merged staged additions)<br/>github-actions[bot] authored"]
+        FinalizeRows --> OpenPR["Open or update this month's PR<br/>(auto-retrain/YYYY-MM,<br/>artifacts/ + data/)<br/>github-actions[bot] authored"]
         OpenPR --> ClearStaged["Clear staged data from<br/>contributions — now safely<br/>part of the PR"]
-        ClearStaged --> MergeCheck{"new_species_introduced<br/>this week?"}
-        MergeCheck -->|"no"| AutoMerge(["Auto-merge<br/>(gh pr merge --admin)"])
-        MergeCheck -->|"yes"| FlagReview(["Leave PR open —<br/>flagged for mandatory<br/>human review, never<br/>auto-merged"])
+        ClearStaged --> FlagReview(["PR left open —<br/>never auto-merged,<br/>always waits for<br/>manual review"])
     end
 ```
 
