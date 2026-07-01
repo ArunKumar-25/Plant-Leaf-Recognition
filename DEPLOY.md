@@ -18,25 +18,31 @@ Short version: push to `main`, the included `.github/workflows/deploy-pages.yml`
 deploys `web/` automatically. One-time setup: repo Settings → Pages → Source →
 **GitHub Actions**.
 
-`identify.html`'s hardcoded `window.PLANTIFY_API_BASE` needs to point at
-wherever you host `api/` (step 2) before the live site's Identify feature
-will work — see "Wiring notes" in `web/README.md`.
+`web/js/config.js` needs to point at wherever you host `api/` (step 2) before
+the live site's Identify feature will work. It's generated automatically at
+deploy time from the `PLANTIFY_API_BASE` GitHub repository **variable**
+(Settings → Secrets and variables → Actions → **Variables** tab — not
+Secrets, that's a different namespace the deploy workflow doesn't read) —
+see `.github/workflows/deploy-pages.yml` and "Wiring notes" in
+[`web/README.md`](web/README.md).
 
 ## 2. `api/` → needs its own host (GitHub Pages is static-only)
 
-Pick any Python host. The repo already includes what you need for either path:
+**DigitalOcean App Platform (recommended if you have GitHub Student Pack
+access)** — Render/Railway's free tiers spin down after ~15 min idle, so the
+first request after a quiet period takes 60-90s (TensorFlow + model load).
+DigitalOcean App Platform's cheapest **paid** tier (~$5/mo, covered for a
+long time by the Student Pack's $200 credit) runs continuously with no
+spin-down, for the same "connect GitHub repo, auto-deploy" simplicity as
+Render:
 
-**Render / Railway / DigitalOcean App Platform (Docker)** — use
-[`Dockerfile.api`](Dockerfile.api) as-is:
-```bash
-docker build -f Dockerfile.api -t plantify-api .
-docker run -p 8000:8000 plantify-api
-```
+1. Activate the DigitalOcean offer at <https://education.github.com/pack> if you haven't.
+2. DigitalOcean dashboard → **Apps** → **Create App** → connect this GitHub repo, branch `main`.
+3. It should detect `Dockerfile.api` automatically (or point it at that path explicitly).
+4. Pick the **Basic** plan (not the free/dev tier — that one sleeps too), smallest size is enough.
+5. Add the env vars below, deploy.
 
-**Heroku-style platforms (Procfile)** — [`Procfile`](Procfile) is already set up:
-```
-web: uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}
-```
+**Render / Railway (free tier, but cold-starts)** — same `Dockerfile.api`, no code changes needed. Fine for a low-traffic demo where the occasional slow first request is acceptable.
 
 Either way, set these env vars on the host:
 ```bash
@@ -44,8 +50,8 @@ CORS_ALLOW_ORIGINS=https://<you>.github.io   # your GitHub Pages origin
 MAX_UPLOAD_BYTES=8388608                      # optional, 8MB default
 ```
 
-Once it's live, update `web/identify.html`'s `PLANTIFY_API_BASE` to the
-host's URL and push — the Pages deploy will pick it up automatically.
+Once it's live, set the `PLANTIFY_API_BASE` repository variable (see above)
+to the host's URL and trigger the Pages deploy — no code changes needed.
 
 ## 3. `app.py` (Streamlit) — internal tool, optional
 
