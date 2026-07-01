@@ -65,8 +65,22 @@
             renderTopK(document.getElementById("uncertain-topk"), payload.top_k);
             cards.uncertain.style.display = "block";
         } else {
+            renderPlantnetNote(payload.plantnet);
             cards.unknown.style.display = "block";
         }
+    }
+
+    function renderPlantnetNote(plantnet) {
+        const note = document.getElementById("unknown-plantnet");
+        if (!note) return;
+        if (!plantnet || !plantnet.name) {
+            note.style.display = "none";
+            return;
+        }
+        document.getElementById("plantnet-species").textContent = plantnet.name;
+        document.getElementById("plantnet-common").textContent = plantnet.common ? "(" + plantnet.common + ")" : "";
+        document.getElementById("plantnet-score").textContent = Math.round(plantnet.score * 100) + "%";
+        note.style.display = "block";
     }
 
     function renderError(message) {
