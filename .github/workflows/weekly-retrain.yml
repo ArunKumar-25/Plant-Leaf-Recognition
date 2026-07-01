@@ -31,16 +31,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Fetch pending contributions from the contributions branch
+      # Materialize the contributions branch in a SEPARATE worktree rather than
+      # switching the main checkout's active branch mid-job. Repeatedly
+      # `git checkout`-ing between branches in one working tree is fragile:
+      # data_pending/ was never really part of main's history, so switching
+      # back to main can silently wipe files that were only manually
+      # `checkout <ref> -- <path>`'d in earlier. A worktree keeps both
+      # branches materialized independently for the whole job.
+      - name: Set up contributions worktree
         id: fetch_pending
         run: |
           if git ls-remote --exit-code --heads origin contributions > /dev/null 2>&1; then
             git fetch origin contributions
-            git checkout origin/contributions -- data_pending
+            git worktree add -b contributions ../contributions-wt origin/contributions
             echo "has_branch=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No contributions branch yet — nothing staged."
+            mkdir -p ../contributions-wt/data_pending
             echo "has_branch=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -d ../contributions-wt/data_pending ]; then
+            cp -r ../contributions-wt/data_pending .
           fi
 
       - name: Evaluate current committed model (baseline)
@@ -53,15 +63,13 @@ jobs:
       - name: Sync processed manifest back to contributions branch
         if: steps.fetch_pending.outputs.has_branch == 'true' && steps.pending.outputs.had_pending == 'true'
         run: |
+          cp data_pending/manifest.jsonl ../contributions-wt/data_pending/manifest.jsonl
+          cd ../contributions-wt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          cp data_pending/manifest.jsonl /tmp/processed_manifest.jsonl
-          git checkout contributions
-          cp /tmp/processed_manifest.jsonl data_pending/manifest.jsonl
           git add data_pending/manifest.jsonl
           git commit -m "chore(contrib): mark candidates processed by weekly retrain run" || echo "Nothing to update."
           git push origin contributions
-          git checkout main
 
       - name: Retrain
         if: steps.pending.outputs.promoted_count != '0'
@@ -134,17 +142,15 @@ jobs:
           PY
 
       - name: Sync finalized manifest to contributions branch
-        if: steps.fetch_pending.outputs.has_branch == 'true' && steps.pending.outputs.had_pending == 'true'
+        if: steps.fetch_pending.outputs.has_branch == 'true' && steps.pending.outputs.promoted_count != '0'
         run: |
+          cp data_pending/manifest.jsonl ../contributions-wt/data_pending/manifest.jsonl
+          cd ../contributions-wt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          cp data_pending/manifest.jsonl /tmp/final_manifest.jsonl
-          git checkout contributions
-          cp /tmp/final_manifest.jsonl data_pending/manifest.jsonl
           git add data_pending/manifest.jsonl
           git commit -m "chore(contrib): finalize candidate statuses after weekly gate" || echo "Nothing to update."
           git push origin contributions
-          git checkout main
 
       - name: Commit improved model
         if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept == 'true'
