@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import uuid
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
@@ -78,19 +79,43 @@ def prediction(img_path: str, model):
 
 def apply_mask(img_path: str) -> str:
     img = cv2.imread(img_path)
+    if img is None:
+        raise ValueError("Invalid image")
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, (36, 0, 0), (86, 255, 255))
     result = img.copy()
     result[mask == 0] = (255, 255, 255)
-    masked_path = os.path.join(tempfile.gettempdir(), "plantify_masked.jpg")
+    masked_path = os.path.join(tempfile.gettempdir(), f"plantify_masked_{uuid.uuid4().hex}.jpg")
     cv2.imwrite(masked_path, result)
     return masked_path
 
 
 def looks_like_leaf_scan(img_path: str) -> bool:
     img = cv2.imread(img_path)
+    if img is None:
+        raise ValueError("Invalid image")
     white = float((img > 200).all(2).mean())
     return 0.40 <= white <= 0.97
+
+
+def validate_uploaded_image(uploaded) -> bytes | None:
+    if getattr(uploaded, "type", None) not in ALLOWED_UPLOAD_TYPES:
+        st.error("Unsupported image type. Please upload JPG, PNG, BMP, TIFF, or WEBP.")
+        return None
+    if getattr(uploaded, "size", 0) > MAX_UPLOAD_BYTES:
+        st.error("Image is too large. Maximum allowed size is 8 MB.")
+        return None
+
+    image_bytes = uploaded.getvalue()
+    try:
+        Image.open(uploaded).verify()
+    except Exception:
+        st.error("Invalid image. Please upload a valid leaf photo.")
+        return None
+    finally:
+        uploaded.seek(0)
+
+    return image_bytes
 
 
 def retrain() -> subprocess.CompletedProcess:
@@ -108,11 +133,8 @@ def main() -> None:
         if uploaded is None:
             st.warning("Please upload an image first.")
         else:
-            if getattr(uploaded, "type", None) not in ALLOWED_UPLOAD_TYPES:
-                st.error("Unsupported image type. Please upload JPG, PNG, BMP, TIFF, or WEBP.")
-                return
-            if getattr(uploaded, "size", 0) > MAX_UPLOAD_BYTES:
-                st.error("Image is too large. Maximum allowed size is 8 MB.")
+            image_bytes = validate_uploaded_image(uploaded)
+            if image_bytes is None:
                 return
 
             col1, col2 = st.columns([1, 4])
@@ -122,19 +144,23 @@ def main() -> None:
             uploaded.seek(0)
             suffix = os.path.splitext(uploaded.name)[1].lower() or ".jpg"
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                tmp.write(uploaded.getbuffer())
+                tmp.write(image_bytes)
                 tmp_path = tmp.name
 
             with col2:
-                model = load_cnn(_model_version())
-                quality_ok = looks_like_leaf_scan(tmp_path)
-                used = tmp_path
-                if not quality_ok:
-                    used = apply_mask(tmp_path)
-                    with col1:
-                        st.image(used, caption="Background removed", width=130)
+                try:
+                    model = load_cnn(_model_version())
+                    quality_ok = looks_like_leaf_scan(tmp_path)
+                    used = tmp_path
+                    if not quality_ok:
+                        used = apply_mask(tmp_path)
+                        with col1:
+                            st.image(used, caption="Background removed", width=130)
 
-                idx, acc = prediction(used, model)
+                    idx, acc = prediction(used, model)
+                except Exception:
+                    st.error("Could not process this image. Please try another leaf photo.")
+                    return
                 if idx >= len(labels):
                     idx = 0
 
