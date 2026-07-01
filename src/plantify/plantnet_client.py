@@ -38,6 +38,7 @@ def identify(image_path: str, organ: str = "leaf", max_results: int = 3, timeout
     if not key:
         return {"error": "no_key"}
 
+    resp = None
     try:
         with open(image_path, "rb") as handle:
             resp = requests.post(
@@ -60,8 +61,13 @@ def identify(image_path: str, organ: str = "leaf", max_results: int = 3, timeout
         data = resp.json()
     except requests.Timeout:
         return {"error": "timeout"}
-    except Exception:
-        return {"error": "request_failed"}
+    except Exception as exc:
+        return {
+            "error": "request_failed",
+            "_debug_exception": "%s: %s" % (type(exc).__name__, exc),
+            "_debug_status_code": resp.status_code if resp is not None else None,
+            "_debug_response_body": resp.text[:500] if resp is not None else None,
+        }
 
     results = []
     for row in data.get("results", [])[:max_results]:
