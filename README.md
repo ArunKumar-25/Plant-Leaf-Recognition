@@ -1,10 +1,10 @@
 # Plantify
 
-Plantify is a **machine learning project** for plant leaf analysis. The first
-trained capability is **species identification**: a CNN classifier that takes
-a leaf photo and returns the species with a confidence score, with an honest
-"I'm not sure" (via an out-of-distribution guard) instead of a confident wrong
-guess.
+**Plantify is a plant leaf recognition model** — a machine learning project
+for plant leaf analysis. The first trained capability is **species
+identification**: a CNN classifier that takes a leaf photo and returns the
+species with a confidence score, with an honest "I'm not sure" (via an
+out-of-distribution guard) instead of a confident wrong guess.
 
 The `web/` site is a thin showcase layer, not the project itself — it exists
 to demo each ML capability and to give new ones a place to plug in. Adding a
