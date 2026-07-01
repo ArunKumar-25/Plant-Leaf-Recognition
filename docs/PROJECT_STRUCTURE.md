@@ -29,7 +29,6 @@ Plant-Leaf-Recognition/
 │   ├── INTEGRATION.md            # API contract for any frontend (web/ is the reference implementation)
 │   └── FINDINGS.md               # Project audit log (what was broken, what was fixed)
 ├── scripts/
-│   ├── run_app.py                # Script entrypoint for Streamlit
 │   ├── train_model.py            # Script entrypoint for training
 │   ├── compress_dataset.py       # Shrink raw .tif scans to committable .jpg
 │   ├── fetch_full_dataset.py     # Download the full 15-species dataset
@@ -54,7 +53,6 @@ Plant-Leaf-Recognition/
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── Dockerfile.api
-├── Procfile
 ├── DEPLOY.md
 └── README.md
 ```

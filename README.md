@@ -111,7 +111,6 @@ the full breakdown of what goes where.
 ## Deployment artifacts included
 
 - `.github/workflows/deploy-pages.yml` — auto-deploys `web/` to GitHub Pages
-- `Procfile` for Heroku-style `api/` deployment
 - `Dockerfile.api` for container deployment of `api/`
 - `.github/workflows/ci.yml` for test automation
 
@@ -120,8 +119,8 @@ the full breakdown of what goes where.
 To keep costs near zero:
 
 - Frontend (`web/`): GitHub Pages, already automated (see above).
-- API/Backend (`api/`): Render/Railway free tier, or Heroku/DigitalOcean
-  student credits, using the included `Procfile`/`Dockerfile.api`.
+- API/Backend (`api/`): Render/Railway free tier, or DigitalOcean
+  student credits, using the included `Dockerfile.api`.
 - ML admin app (`app.py`, optional): Streamlit Community Cloud.
 - Optional AWS learning without spend: LocalStack (via GitHub Student Pack).
 
