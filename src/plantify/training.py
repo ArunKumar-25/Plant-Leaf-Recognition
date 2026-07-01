@@ -33,6 +33,10 @@ from .config import IMG_SIZE, LABELS_FILE, MODEL_DIR, OOD_FILE, REPORTS_DIR
 
 matplotlib.use("Agg")
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+# Forces deterministic implementations of ops where TF has a choice --
+# without this, CPU kernels can pick non-deterministic-order float
+# summation even with every seed pinned, adding to run-to-run variance.
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
 
 SEED = 42
 np.random.seed(SEED)
@@ -146,9 +150,9 @@ def train_and_evaluate(use_augmentation: bool = True, use_fine_tune: bool = True
     head = Sequential(
         [
             Input((base.output_shape[-1],)),
-            Dropout(0.3),
+            Dropout(0.3, seed=SEED),
             Dense(256, activation="relu"),
-            Dropout(0.4),
+            Dropout(0.4, seed=SEED),
             Dense(len(classes), activation="softmax"),
         ]
     )
