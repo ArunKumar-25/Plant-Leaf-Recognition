@@ -1,0 +1,188 @@
+name: Weekly self-retrain
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch: {} # manual trigger, for demoing/debugging
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: weekly-retrain
+  cancel-in-progress: false
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Fetch pending contributions from the contributions branch
+        id: fetch_pending
+        run: |
+          if git ls-remote --exit-code --heads origin contributions > /dev/null 2>&1; then
+            git fetch origin contributions
+            git checkout origin/contributions -- data_pending
+            echo "has_branch=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No contributions branch yet — nothing staged."
+            echo "has_branch=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Evaluate current committed model (baseline)
+        run: python scripts/evaluate_model.py --out reports/_baseline_metrics.json
+
+      - name: Promote qualifying candidates
+        id: pending
+        run: python scripts/promote_pending.py --min-plantnet-score 0.70 --max-per-class 25
+
+      - name: Sync processed manifest back to contributions branch
+        if: steps.fetch_pending.outputs.has_branch == 'true' && steps.pending.outputs.had_pending == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp data_pending/manifest.jsonl /tmp/processed_manifest.jsonl
+          git checkout contributions
+          cp /tmp/processed_manifest.jsonl data_pending/manifest.jsonl
+          git add data_pending/manifest.jsonl
+          git commit -m "chore(contrib): mark candidates processed by weekly retrain run" || echo "Nothing to update."
+          git push origin contributions
+          git checkout main
+
+      - name: Retrain
+        if: steps.pending.outputs.promoted_count != '0'
+        run: python scripts/train_model.py
+
+      - name: Evaluate retrained model
+        if: steps.pending.outputs.promoted_count != '0'
+        run: python scripts/evaluate_model.py --out reports/_new_metrics.json
+
+      - name: Regression gate
+        if: steps.pending.outputs.promoted_count != '0'
+        id: gate
+        run: |
+          python scripts/regression_gate.py \
+            --baseline reports/_baseline_metrics.json \
+            --new reports/_new_metrics.json \
+            --tolerance 0.01
+
+      - name: Finalize manifest statuses after accepted gate
+        if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept == 'true'
+        run: |
+          python - <<'PY'
+          import json
+
+          path = "data_pending/manifest.jsonl"
+          rows = []
+          try:
+            with open(path, encoding="utf-8") as handle:
+              for line in handle:
+                line = line.strip()
+                if line:
+                  rows.append(json.loads(line))
+          except FileNotFoundError:
+            rows = []
+
+          for row in rows:
+            if row.get("status") == "promoted_pending_gate":
+              row["status"] = "accepted_committed"
+
+          with open(path, "w", encoding="utf-8") as handle:
+            for row in rows:
+              handle.write(json.dumps(row) + "\n")
+          PY
+
+      - name: Revert promoted rows if gate rejected
+        if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept != 'true'
+        run: |
+          python - <<'PY'
+          import json
+
+          path = "data_pending/manifest.jsonl"
+          rows = []
+          try:
+            with open(path, encoding="utf-8") as handle:
+              for line in handle:
+                line = line.strip()
+                if line:
+                  rows.append(json.loads(line))
+          except FileNotFoundError:
+            rows = []
+
+          for row in rows:
+            if row.get("status") == "promoted_pending_gate":
+              row["status"] = "pending"
+              row["reject_reason"] = "gate_rejected_retry_next_cycle"
+
+          with open(path, "w", encoding="utf-8") as handle:
+            for row in rows:
+              handle.write(json.dumps(row) + "\n")
+          PY
+
+      - name: Sync finalized manifest to contributions branch
+        if: steps.fetch_pending.outputs.has_branch == 'true' && steps.pending.outputs.had_pending == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp data_pending/manifest.jsonl /tmp/final_manifest.jsonl
+          git checkout contributions
+          cp /tmp/final_manifest.jsonl data_pending/manifest.jsonl
+          git add data_pending/manifest.jsonl
+          git commit -m "chore(contrib): finalize candidate statuses after weekly gate" || echo "Nothing to update."
+          git push origin contributions
+          git checkout main
+
+      - name: Commit improved model
+        if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f reports/_baseline_metrics.json reports/_new_metrics.json
+          git add leaf_cnn class_labels.json ood.npz reports data data_pending/manifest.jsonl
+          git commit -m "chore(model): weekly automated retrain
+
+          Baseline accuracy: ${{ steps.gate.outputs.baseline_acc }}%
+          New accuracy:      ${{ steps.gate.outputs.new_acc }}%
+          New training images this cycle: ${{ steps.pending.outputs.new_images_count }}
+
+          This commit was created by a scheduled GitHub Actions workflow
+          (.github/workflows/weekly-retrain.yml), not a human contributor."
+          git push origin main
+
+      - name: Record rejected retrain
+        if: steps.pending.outputs.promoted_count != '0' && steps.gate.outputs.accept != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## Weekly retrain: REJECTED"
+            echo "Baseline: ${{ steps.gate.outputs.baseline_acc }}% — New: ${{ steps.gate.outputs.new_acc }}%"
+            echo "Reason: ${{ steps.gate.outputs.reason }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "Weekly retrain rejected ($(date -u +%F))" \
+            --body "New model accuracy ${{ steps.gate.outputs.new_acc }}% did not meet the regression-gate tolerance against baseline ${{ steps.gate.outputs.baseline_acc }}% (reason: ${{ steps.gate.outputs.reason }}). Not committed to main — data/model changes in this run were discarded. Promoted candidate rows were reverted to pending on the contributions branch for retry in the next cycle."
+
+      - name: No candidates this cycle
+        if: steps.pending.outputs.had_pending != 'true'
+        run: echo "No pending candidate data this week — nothing to process." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Pending processed but none promoted
+        if: steps.pending.outputs.had_pending == 'true' && steps.pending.outputs.promoted_count == '0'
+        run: |
+          echo "Pending candidates were processed, but none met promotion criteria this cycle." >> "$GITHUB_STEP_SUMMARY"

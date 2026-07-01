@@ -31,12 +31,18 @@ Plant-Leaf-Recognition/
 │   ├── run_app.py                # Script entrypoint for Streamlit
 │   ├── train_model.py            # Script entrypoint for training
 │   ├── compress_dataset.py       # Shrink raw .tif scans to committable .jpg
-│   └── fetch_full_dataset.py     # Download the full 15-species dataset
+│   ├── fetch_full_dataset.py     # Download the full 15-species dataset
+│   ├── evaluate_model.py         # Eval the *committed* model without retraining (baseline/gate input)
+│   ├── promote_pending.py        # Weekly job: stage qualifying data_pending/ candidates into data/
+│   └── regression_gate.py        # Weekly job: accept/reject a retrain by comparing metrics JSON
 ├── tests/
 │   ├── test_api_security.py
-│   └── test_data_helpers.py
+│   ├── test_data_helpers.py
+│   └── test_pending_helpers.py   # Active-learning staging + regression gate tests
 ├── samples/                      # Sample leaf images for manual testing
-├── data/                         # Dataset classes (local / optional in git)
+├── data/                         # Dataset classes (compact, committed — see DEPLOY.md)
+├── data_pending/                 # Active-learning staging area (contributions branch); see
+│                                  #   docs/ARCHITECTURE.md's "Active Learning & Self-Retraining"
 ├── leaf_cnn/                     # Trained model artifacts
 ├── reports/                      # Metrics + plots
 ├── app.py                        # Compatibility wrapper (Streamlit) — required by Streamlit

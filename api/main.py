@@ -2,28 +2,34 @@
 
 from __future__ import annotations
 
+import base64
+import datetime
+import json
 import logging
 import os
 import tempfile
+import time
+from contextlib import asynccontextmanager
 from typing import Dict, List
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, UploadFile
+import requests
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
 from tensorflow import keras
 from tensorflow.keras.preprocessing import image as keras_image
 
+from src.plantify import plantnet_client
 from src.plantify.config import CONFIDENCE_FLOOR, IMG_SIZE, MODEL_DIR, OOD_FILE
-from src.plantify.data import load_labels
+from src.plantify.data import PENDING_MANIFEST, build_pending_row, load_labels
 
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
-
-app = FastAPI(title="Plantify Leaf API", version="2.0.0")
+_staging_logger = logging.getLogger("plantify.staging")
 
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(8 * 1024 * 1024)))
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
@@ -35,9 +41,33 @@ ALLOWED_CONTENT_TYPES = {
     "image/webp",
 }
 
+PLANTNET_DAILY_CAP = int(os.getenv("PLANTNET_DAILY_CAP", "300"))
+PLANTNET_PUBLIC_FALLBACK_ENABLED = os.getenv("PLANTNET_PUBLIC_FALLBACK_ENABLED", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+PLANTNET_STAGE_THRESHOLD = float(os.getenv("PLANTNET_STAGE_THRESHOLD", "0.70"))
+GITHUB_CONTRIB_TOKEN = os.getenv("GITHUB_CONTRIB_TOKEN", "").strip()
+GITHUB_REPO = os.getenv("GITHUB_REPO", "").strip()
+GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "contributions")
+STAGING_MAX_RETRIES = int(os.getenv("STAGING_MAX_RETRIES", "3"))
+RATE_LIMIT_REQUESTS_PER_MINUTE = int(os.getenv("RATE_LIMIT_REQUESTS_PER_MINUTE", "30"))
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    _load_once()
+    yield
+
+
+app = FastAPI(title="Plantify Leaf API", version="2.0.0", lifespan=lifespan)
+
 allowed_origins = [
     origin.strip()
-    for origin in os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+    for origin in os.getenv(
+        "CORS_ALLOW_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+    ).split(",")
     if origin.strip()
 ]
 allow_credentials = "*" not in allowed_origins
@@ -54,6 +84,9 @@ _labels: List[str] = []
 _embedder = None
 _ood_feats = None
 _ood_threshold = None
+_plantnet_call_date: datetime.date | None = None
+_plantnet_call_count = 0
+_request_windows: Dict[str, List[float]] = {}
 
 
 def _load_once() -> None:
@@ -65,8 +98,12 @@ def _load_once() -> None:
     _labels = load_labels()
 
     try:
-        base = next(layer for layer in _model.layers if "mobilenet" in layer.name.lower())
-        rescale = next(layer for layer in _model.layers if "rescal" in layer.name.lower())
+        base = next(
+            layer for layer in _model.layers if "mobilenet" in layer.name.lower()
+        )
+        rescale = next(
+            layer for layer in _model.layers if "rescal" in layer.name.lower()
+        )
         inp = keras.Input((IMG_SIZE, IMG_SIZE, 3))
         _embedder = keras.Model(inp, base(rescale(inp)))
     except Exception:
@@ -88,7 +125,11 @@ def _looks_like_leaf_scan(path: str) -> bool:
 
 def _predict_topk(path: str, k: int = 3) -> Dict[str, object]:
     img = keras_image.load_img(path, target_size=(IMG_SIZE, IMG_SIZE))
-    arr = keras_image.img_to_array(img).reshape(-1, IMG_SIZE, IMG_SIZE, 3).astype("float32")
+    arr = (
+        keras_image.img_to_array(img)
+        .reshape(-1, IMG_SIZE, IMG_SIZE, 3)
+        .astype("float32")
+    )
     out = _model.predict(arr, verbose=0)[0]
 
     order = np.argsort(out)[::-1][:k]
@@ -112,9 +153,171 @@ def _domain_similarity(arr: np.ndarray) -> float | None:
     return float((_ood_feats @ emb).max())
 
 
-@app.on_event("startup")
-def startup() -> None:
-    _load_once()
+def _client_id(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_rate_limit(client_id: str) -> None:
+    if RATE_LIMIT_REQUESTS_PER_MINUTE <= 0:
+        return
+
+    now = time.monotonic()
+    cutoff = now - 60
+    recent = [stamp for stamp in _request_windows.get(client_id, []) if stamp > cutoff]
+    if len(recent) >= RATE_LIMIT_REQUESTS_PER_MINUTE:
+        _request_windows[client_id] = recent
+        raise HTTPException(status_code=429, detail="Too many requests")
+    recent.append(now)
+    _request_windows[client_id] = recent
+
+
+def _maybe_consult_plantnet(temp_path: str, decision: str) -> Dict[str, object] | None:
+    """Ask Pl@ntNet for a second opinion, but only on `unknown` and only up
+    to a daily cap (shared quota with the Streamlit admin tool's manual use).
+    Never raises — a Pl@ntNet outage degrades to "no second opinion", not a 500.
+    """
+    if decision != "unknown" or not PLANTNET_PUBLIC_FALLBACK_ENABLED:
+        return None
+
+    global _plantnet_call_date, _plantnet_call_count
+    today = datetime.date.today()
+    if _plantnet_call_date != today:
+        _plantnet_call_date = today
+        _plantnet_call_count = 0
+    if _plantnet_call_count >= PLANTNET_DAILY_CAP:
+        return None
+    _plantnet_call_count += 1
+
+    try:
+        result = plantnet_client.identify(temp_path)
+    except Exception:
+        return None
+    if result.get("error") or not result.get("results"):
+        return None
+    return result["results"][0]
+
+
+def _stage_candidate(image_bytes: bytes, row: Dict[str, object]) -> None:
+    """Best-effort: push a candidate image + manifest row to the dedicated
+    `contributions` branch via the GitHub Contents API. No-ops if staging
+    isn't configured (GITHUB_CONTRIB_TOKEN/GITHUB_REPO unset) — the live API
+    has no durable local disk, so GitHub itself is the only durable store.
+    Never raises into the request path; staging failures are logged only.
+    """
+    if not (GITHUB_CONTRIB_TOKEN and GITHUB_REPO):
+        return
+
+    headers = {
+        "Authorization": f"Bearer {GITHUB_CONTRIB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+    }
+    base_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
+
+    def _content_get(path: str):
+        return requests.get(
+            f"{base_url}/{path}",
+            headers=headers,
+            params={"ref": GITHUB_BRANCH},
+            timeout=10,
+        )
+
+    def _content_put(path: str, body: Dict[str, object]):
+        return requests.put(
+            f"{base_url}/{path}", headers=headers, json=body, timeout=10
+        )
+
+    def _delete_staged_image(path: str) -> None:
+        try:
+            get_resp = _content_get(path)
+            if get_resp.status_code != 200:
+                return
+            sha = get_resp.json().get("sha")
+            if not sha:
+                return
+            resp = requests.delete(
+                f"{base_url}/{path}",
+                headers=headers,
+                json={
+                    "message": f"chore(contrib): rollback orphan candidate image {row['id']}",
+                    "sha": sha,
+                    "branch": GITHUB_BRANCH,
+                },
+                timeout=10,
+            )
+            if resp.status_code not in (200, 201):
+                _staging_logger.warning(
+                    "Rollback image delete failed for %s: %s", path, resp.status_code
+                )
+        except Exception:
+            _staging_logger.exception("Rollback image delete errored for %s", path)
+
+    try:
+        image_path = row["image"]
+        image_resp = _content_put(
+            image_path,
+            {
+                "message": f"chore(contrib): stage candidate image {row['id']}",
+                "content": base64.b64encode(image_bytes).decode("ascii"),
+                "branch": GITHUB_BRANCH,
+            },
+        )
+        if image_resp.status_code not in (200, 201):
+            _staging_logger.warning(
+                "Failed to stage image %s: %s", row.get("id"), image_resp.status_code
+            )
+            return
+
+        staged = False
+        for attempt in range(STAGING_MAX_RETRIES):
+            get_resp = _content_get(PENDING_MANIFEST)
+            if get_resp.status_code == 200:
+                current = get_resp.json()
+                existing = base64.b64decode(current["content"]).decode("utf-8")
+                sha = current.get("sha")
+            elif get_resp.status_code == 404:
+                existing = ""
+                sha = None
+            else:
+                _staging_logger.warning(
+                    "Failed reading manifest before append for %s: %s",
+                    row.get("id"),
+                    get_resp.status_code,
+                )
+                break
+
+            body = {
+                "message": f"chore(contrib): record candidate {row['id']}",
+                "content": base64.b64encode(
+                    (existing + json.dumps(row) + "\n").encode("utf-8")
+                ).decode("ascii"),
+                "branch": GITHUB_BRANCH,
+            }
+            if sha:
+                body["sha"] = sha
+            put_resp = _content_put(PENDING_MANIFEST, body)
+            if put_resp.status_code in (200, 201):
+                staged = True
+                break
+            if put_resp.status_code == 409:
+                time.sleep(0.25 * (attempt + 1))
+                continue
+            _staging_logger.warning(
+                "Failed writing manifest for %s: %s",
+                row.get("id"),
+                put_resp.status_code,
+            )
+            break
+
+        if not staged:
+            _delete_staged_image(image_path)
+            _staging_logger.warning(
+                "Candidate %s was not staged into manifest", row.get("id")
+            )
+    except Exception:
+        _staging_logger.exception("Failed to stage candidate %s", row.get("id"))
 
 
 @app.get("/health")
@@ -129,8 +332,9 @@ def health() -> Dict[str, object]:
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(request: Request, file: UploadFile = File(...)):
     _load_once()
+    _check_rate_limit(_client_id(request))
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded")
@@ -183,6 +387,24 @@ async def predict(file: UploadFile = File(...)):
             "domain_similarity": sim,
             "num_classes": len(_labels),
         }
+
+        plantnet_top = _maybe_consult_plantnet(temp_path, decision)
+        if plantnet_top is not None:
+            payload["plantnet"] = plantnet_top
+            if plantnet_top["score"] >= PLANTNET_STAGE_THRESHOLD:
+                row = build_pending_row(
+                    predicted_species=pred["species"],
+                    model_confidence=pred["confidence"],
+                    domain_similarity=sim,
+                    decision=decision,
+                    plantnet_species=plantnet_top["name"],
+                    plantnet_confidence=plantnet_top["score"],
+                    plantnet_common=plantnet_top.get("common", ""),
+                    source="api",
+                    ext=suffix,
+                )
+                _stage_candidate(body, row)
+
         return JSONResponse(payload)
     finally:
         if os.path.exists(temp_path):

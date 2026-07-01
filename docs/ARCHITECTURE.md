@@ -62,15 +62,70 @@ every layer a new ML feature needs:
    bad input — every capability should have some honesty mechanism, even a
    simple confidence floor.
 3. **Show** — add a `web/<feature>.html` + `web/js/<feature>.js`, copying
-   `identify.html`/`identify.js`'s structure: a `window.PLANTIFY_API_BASE`
-   config line, a `fetch()` call, and result states that map 1:1 to whatever
-   your endpoint's decision/status values are. Add it to the nav and to the
-   "ML Capabilities" grid on `index.html`.
+   `identify.html`/`identify.js`'s structure: it loads `js/config.js` for
+   `window.PLANTIFY_API_BASE`, then a `fetch()` call, and result states that
+   map 1:1 to whatever your endpoint's decision/status values are. Add it to
+   the nav and to the "ML Capabilities" grid on `index.html`.
 4. **Document** — add the new endpoint's contract to `docs/INTEGRATION.md`
    next to `/predict`'s.
 
 Nothing about this requires touching the other capabilities — the API and
 the web pages are one-to-one with each trained model.
+
+## Active Learning & Self-Retraining
+
+When `/predict` returns `unknown`, the API can optionally consult Pl@ntNet
+and use a confident answer to grow the training set — fully automated, no
+human in the loop for staging (though a regression gate still guards what
+ever reaches the committed model). This is off by default; every piece below
+requires explicit configuration to activate.
+
+**Per-request (`api/main.py`):**
+1. `unknown` only — not `uncertain`, which already has a plausible model
+   guess. Gated by `PLANTNET_PUBLIC_FALLBACK_ENABLED` (default off).
+2. Rate-limited to `PLANTNET_DAILY_CAP` (default 300) Pl@ntNet calls/day,
+   shared quota with the Streamlit tool's manual "Ask Pl@ntNet".
+3. If Pl@ntNet's top result scores `>= PLANTNET_STAGE_THRESHOLD` (default
+   0.70), the image + a manifest row are staged via the GitHub Contents API
+   to a dedicated **`contributions` branch** (never `main` — caps blast
+   radius if the write-scoped token in `GITHUB_CONTRIB_TOKEN` ever leaks).
+   Staging is best-effort and rolls back the image if the manifest write
+   ultimately fails (`_stage_candidate`, with retry-on-conflict).
+
+Nothing here writes to the API's local disk — an ephemeral host's filesystem
+doesn't survive a restart, so GitHub itself is the only durable store.
+
+**Staging format:** `data_pending/manifest.jsonl` (append-only, one JSON
+object per line — avoids read-modify-write races on a parsed array) +
+`data_pending/images/<uuid>.<ext>`. Row `status` moves
+`pending → promoted_pending_gate → accepted_committed` (or back to `pending`
+with a `reject_reason` if the gate later rejects the retrain) — never
+deleted, so the full history of every candidate is auditable.
+See `src/plantify/data.py`'s `build_pending_row`/`append_pending`/
+`read_pending`/`write_pending`. This is a separate, *unverified* path from
+`save_contribution` — the trusted, human-confirmed one used by Streamlit's
+"Teach the model".
+
+**Weekly (`.github/workflows/weekly-retrain.yml`, Mondays + manual dispatch):**
+1. Evaluate the currently committed model (`scripts/evaluate_model.py`) → baseline.
+2. Pull `data_pending/` from the `contributions` branch.
+3. `scripts/promote_pending.py` — re-checks the score threshold, maps
+   Pl@ntNet's scientific name onto an existing class by genus (never
+   auto-creates a new species folder from an unverified external guess), caps
+   promotions at `--max-per-class` per cycle, copies accepted images into
+   `data/<species>/`.
+4. If anything was promoted: retrain (`scripts/train_model.py`, unchanged),
+   evaluate the result, and run the **regression gate**
+   (`scripts/regression_gate.py`): accept only if aggregate accuracy is
+   within tolerance of baseline *and* no single class's recall regressed
+   (an aggregate-only check can hide one class collapsing while the average
+   looks fine).
+5. Accepted → commit `leaf_cnn/`, `class_labels.json`, `ood.npz`, `reports/`,
+   `data/`, and the manifest to `main`, authored as
+   `github-actions[bot]` — **never the human maintainer's identity**; an
+   automated commit must say so honestly, not be styled to look like manual
+   work. Rejected → no commit, an issue is opened recording why, and
+   promoted rows revert to `pending` for the next cycle.
 
 ## Compatibility Layer
 

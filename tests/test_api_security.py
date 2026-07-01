@@ -10,6 +10,32 @@ def _client_without_model_load(monkeypatch):
     return TestClient(api_main.app)
 
 
+def test_rate_limit_rejects_burst(monkeypatch):
+    monkeypatch.setattr(api_main, "RATE_LIMIT_REQUESTS_PER_MINUTE", 1)
+    api_main._request_windows.clear()
+    client = _client_without_model_load(monkeypatch)
+
+    first = client.post(
+        "/predict",
+        files={"file": ("leaf.txt", b"not-an-image", "text/plain")},
+    )
+    second = client.post(
+        "/predict",
+        files={"file": ("leaf.txt", b"not-an-image", "text/plain")},
+    )
+
+    assert first.status_code == 415
+    assert second.status_code == 429
+    assert second.json()["detail"] == "Too many requests"
+
+
+def test_plantnet_fallback_is_opt_in(monkeypatch):
+    monkeypatch.setattr(api_main, "PLANTNET_PUBLIC_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(api_main.plantnet_client, "identify", lambda _: (_ for _ in ()).throw(AssertionError))
+
+    assert api_main._maybe_consult_plantnet("leaf.jpg", "unknown") is None
+
+
 def test_rejects_unsupported_content_type(monkeypatch):
     client = _client_without_model_load(monkeypatch)
 

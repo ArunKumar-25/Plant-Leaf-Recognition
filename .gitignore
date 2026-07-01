@@ -5,8 +5,11 @@ __pycache__/
 venv/
 env/
 
-# Pending active-learning candidates are tracked in git on the `contributions`
-# branch only — never on main locally during dev.
+# Active-learning candidate images are tracked on the `contributions` branch
+# only (via the GitHub Contents API, not local git) — keep local/dev runs of
+# api/main.py from accidentally staging images into a main checkout. The
+# manifest itself IS tracked on main (audit trail), so only images/ is ignored.
+data_pending/images/
 
 # Scratch / runtime
 _online/
