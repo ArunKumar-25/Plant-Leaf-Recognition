@@ -16,6 +16,11 @@ updates:
       # a deliberate tensorflow-cpu upgrade, not automatically.
       - dependency-name: "numpy"
         update-types: ["version-update:semver-major"]
+      # opencv-python-headless >4.9.0.80 requires numpy>=2, same conflict as
+      # above, but arrives as a "minor" bump under its own versioning (4.9 ->
+      # 4.13) so the numpy ignore rule doesn't catch it. Confirmed twice --
+      # this exact combination broke main via the pip-minor-patch group.
+      - dependency-name: "opencv-python-headless"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
