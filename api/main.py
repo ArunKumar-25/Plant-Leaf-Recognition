@@ -174,17 +174,21 @@ def _check_rate_limit(client_id: str) -> None:
     _request_windows[client_id] = recent
 
 
-def _maybe_consult_plantnet(temp_path: str, decision: str) -> Dict[str, object] | None:
+def _maybe_consult_plantnet(temp_path: str, decision: str) -> tuple[Dict[str, object] | None, Dict[str, object]]:
     """Ask Pl@ntNet for a second opinion, but only on `unknown` and only up
     to a daily cap (shared quota with the Streamlit admin tool's manual use).
     Never raises — a Pl@ntNet outage degrades to "no second opinion", not a 500.
+
+    Returns (top_result_or_None, debug_info) — debug_info is temporary, for
+    diagnosing why the feature isn't showing up in production.
     """
-    print(
-        "DEBUG plantnet: decision=%r enabled=%r has_key=%r"
-        % (decision, PLANTNET_PUBLIC_FALLBACK_ENABLED, bool(plantnet_client.get_api_key()))
-    )
+    debug: Dict[str, object] = {
+        "decision": decision,
+        "enabled": PLANTNET_PUBLIC_FALLBACK_ENABLED,
+        "has_key": bool(plantnet_client.get_api_key()),
+    }
     if decision != "unknown" or not PLANTNET_PUBLIC_FALLBACK_ENABLED:
-        return None
+        return None, debug
 
     global _plantnet_call_date, _plantnet_call_count
     today = datetime.date.today()
@@ -192,19 +196,19 @@ def _maybe_consult_plantnet(temp_path: str, decision: str) -> Dict[str, object] 
         _plantnet_call_date = today
         _plantnet_call_count = 0
     if _plantnet_call_count >= PLANTNET_DAILY_CAP:
-        print("DEBUG plantnet: daily cap hit (%d/%d)" % (_plantnet_call_count, PLANTNET_DAILY_CAP))
-        return None
+        debug["daily_cap_hit"] = "%d/%d" % (_plantnet_call_count, PLANTNET_DAILY_CAP)
+        return None, debug
     _plantnet_call_count += 1
 
     try:
         result = plantnet_client.identify(temp_path)
     except Exception as exc:
-        print("DEBUG plantnet: identify() raised %r" % exc)
-        return None
-    print("DEBUG plantnet: raw result=%r" % result)
+        debug["exception"] = repr(exc)
+        return None, debug
+    debug["raw_result"] = result
     if result.get("error") or not result.get("results"):
-        return None
-    return result["results"][0]
+        return None, debug
+    return result["results"][0], debug
 
 
 def _stage_candidate(image_bytes: bytes, row: Dict[str, object]) -> None:
@@ -395,7 +399,8 @@ async def predict(request: Request, file: UploadFile = File(...)):
             "num_classes": len(_labels),
         }
 
-        plantnet_top = _maybe_consult_plantnet(temp_path, decision)
+        plantnet_top, plantnet_debug = _maybe_consult_plantnet(temp_path, decision)
+        payload["_debug_plantnet"] = plantnet_debug
         if plantnet_top is not None:
             payload["plantnet"] = plantnet_top
             if plantnet_top["score"] >= PLANTNET_STAGE_THRESHOLD:
