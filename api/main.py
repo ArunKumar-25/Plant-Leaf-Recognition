@@ -434,6 +434,7 @@ async def predict(request: Request, file: UploadFile = File(...)):
 
         plantnet_top = _maybe_consult_plantnet(temp_path, decision)
         if plantnet_top is not None:
+            plantnet_top["staged"] = plantnet_top["score"] >= PLANTNET_STAGE_THRESHOLD
             payload["plantnet"] = plantnet_top
             if plantnet_top["score"] >= PLANTNET_STAGE_THRESHOLD:
                 row = build_pending_row(

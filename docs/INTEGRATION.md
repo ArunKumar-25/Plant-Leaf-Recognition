@@ -77,9 +77,12 @@ the fields above — see the frontend integration snippet's UI mapping.
 - `ok`: confident in known species
 - `uncertain`: weak match, show warning in UI
 - `unknown`: likely outside trained domain/species — the API may also
-  include a `plantnet` field (second-opinion suggestion) if Pl@ntNet was
-  consulted; see `docs/ARCHITECTURE.md`'s "Active Learning & Self-Retraining"
-  section.
+  include a `plantnet` field (`{name, common, score, staged}`, second-opinion
+  suggestion) if Pl@ntNet was consulted. `staged` is `true` only if `score`
+  cleared `PLANTNET_STAGE_THRESHOLD` (default 0.70) — below that, Pl@ntNet's
+  guess is shown but was never queued for review; say so in the UI rather
+  than implying it might have been. See `docs/ARCHITECTURE.md`'s
+  "Active Learning & Self-Retraining" section.
 
 ## Frontend integration snippet
 

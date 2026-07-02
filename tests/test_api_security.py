@@ -146,3 +146,48 @@ def test_predict_rejects_non_leaf_photo_without_running_model(monkeypatch):
     assert response.status_code == 422
     assert "doesn't look like a leaf" in response.json()["detail"]
     assert called["predict"] is False
+
+
+def _mock_unknown_prediction(monkeypatch):
+    monkeypatch.setattr(api_main, "_leaf_scan_quality", lambda _path: "ok")
+    monkeypatch.setattr(
+        api_main,
+        "_predict_topk",
+        lambda *_a, **_k: {"species": "Acer", "confidence": 0.1, "top_k": [], "array": np.zeros((1, 1, 1, 1))},
+    )
+    monkeypatch.setattr(api_main, "_domain_similarity", lambda *_a, **_k: None)
+
+
+def test_plantnet_result_below_threshold_marked_not_staged(monkeypatch):
+    client = _client_without_model_load(monkeypatch)
+    _mock_unknown_prediction(monkeypatch)
+    monkeypatch.setattr(api_main, "PLANTNET_STAGE_THRESHOLD", 0.70)
+    monkeypatch.setattr(
+        api_main,
+        "_maybe_consult_plantnet",
+        lambda *_a, **_k: {"name": "Tilia platyphyllos", "common": "", "score": 0.41},
+    )
+
+    array = np.full((64, 64, 3), 255, dtype=np.uint8)
+    response = client.post("/predict", files={"file": ("leaf.jpg", _jpeg_bytes(array), "image/jpeg")})
+
+    assert response.status_code == 200
+    assert response.json()["plantnet"]["staged"] is False
+
+
+def test_plantnet_result_above_threshold_marked_staged(monkeypatch):
+    client = _client_without_model_load(monkeypatch)
+    _mock_unknown_prediction(monkeypatch)
+    monkeypatch.setattr(api_main, "PLANTNET_STAGE_THRESHOLD", 0.70)
+    monkeypatch.setattr(api_main, "_stage_candidate", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        api_main,
+        "_maybe_consult_plantnet",
+        lambda *_a, **_k: {"name": "Tilia platyphyllos", "common": "", "score": 0.85},
+    )
+
+    array = np.full((64, 64, 3), 255, dtype=np.uint8)
+    response = client.post("/predict", files={"file": ("leaf.jpg", _jpeg_bytes(array), "image/jpeg")})
+
+    assert response.status_code == 200
+    assert response.json()["plantnet"]["staged"] is True

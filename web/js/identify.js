@@ -87,6 +87,9 @@
         document.getElementById("plantnet-species").textContent = plantnet.name;
         document.getElementById("plantnet-common").textContent = plantnet.common ? "(" + plantnet.common + ")" : "";
         document.getElementById("plantnet-score").textContent = Math.round(plantnet.score * 100) + "%";
+        document.getElementById("plantnet-staged-note").textContent = plantnet.staged
+            ? "That's confident enough — it's been queued for review before it could ever affect the model."
+            : "That's not confident enough to queue for review on its own — try a clearer or more typical photo of this leaf.";
         note.style.display = "block";
     }
 
