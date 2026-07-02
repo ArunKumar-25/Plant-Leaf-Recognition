@@ -1,5 +1,6 @@
 """Security-focused tests for API upload validation paths."""
 
+import datetime
 import io
 
 import numpy as np
@@ -158,6 +159,22 @@ def _mock_unknown_prediction(monkeypatch):
     monkeypatch.setattr(api_main, "_domain_similarity", lambda *_a, **_k: None)
 
 
+def _mock_uncertain_prediction(monkeypatch):
+    # A raw-confidence "ok" prediction whose OOD domain similarity lands in
+    # the "uncertain" band (low <= sim < high) -- the case a model can be
+    # 100% confident and still wrong on (a real Sorbus intermedia leaf
+    # misclassified as Quercus), which is exactly why this band also
+    # deserves a Pl@ntNet second opinion.
+    monkeypatch.setattr(api_main, "_leaf_scan_quality", lambda _path: "ok")
+    monkeypatch.setattr(
+        api_main,
+        "_predict_topk",
+        lambda *_a, **_k: {"species": "Quercus", "confidence": 1.0, "top_k": [], "array": np.zeros((1, 1, 1, 1))},
+    )
+    monkeypatch.setattr(api_main, "_ood_threshold", 0.90)
+    monkeypatch.setattr(api_main, "_domain_similarity", lambda *_a, **_k: 0.80)
+
+
 def test_plantnet_result_below_threshold_marked_not_staged(monkeypatch):
     client = _client_without_model_load(monkeypatch)
     _mock_unknown_prediction(monkeypatch)
@@ -191,3 +208,49 @@ def test_plantnet_result_above_threshold_marked_staged(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["plantnet"]["staged"] is True
+
+
+def test_plantnet_is_consulted_on_uncertain_decision(monkeypatch):
+    client = _client_without_model_load(monkeypatch)
+    _mock_uncertain_prediction(monkeypatch)
+    monkeypatch.setattr(api_main, "PLANTNET_STAGE_THRESHOLD", 0.70)
+    monkeypatch.setattr(api_main, "_stage_candidate", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        api_main,
+        "_maybe_consult_plantnet",
+        lambda *_a, **_k: {"name": "Sorbus intermedia", "common": "", "score": 0.85},
+    )
+
+    array = np.full((64, 64, 3), 255, dtype=np.uint8)
+    response = client.post("/predict", files={"file": ("leaf.jpg", _jpeg_bytes(array), "image/jpeg")})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["decision"] == "uncertain"
+    assert body["plantnet"]["staged"] is True
+
+
+def test_maybe_consult_plantnet_fires_for_uncertain_decision(monkeypatch):
+    monkeypatch.setattr(api_main, "PLANTNET_PUBLIC_FALLBACK_ENABLED", True)
+    monkeypatch.setattr(api_main, "_plantnet_call_date", datetime.date.today())
+    monkeypatch.setattr(api_main, "_plantnet_call_count", 0)
+    monkeypatch.setattr(api_main, "PLANTNET_DAILY_CAP", 100)
+    monkeypatch.setattr(
+        api_main.plantnet_client,
+        "identify",
+        lambda _path: {"results": [{"name": "Sorbus intermedia", "common": "", "score": 0.85}]},
+    )
+
+    result = api_main._maybe_consult_plantnet("leaf.jpg", "uncertain")
+
+    assert result is not None
+    assert result["name"] == "Sorbus intermedia"
+
+
+def test_maybe_consult_plantnet_still_skips_ok_decision(monkeypatch):
+    monkeypatch.setattr(api_main, "PLANTNET_PUBLIC_FALLBACK_ENABLED", True)
+    monkeypatch.setattr(
+        api_main.plantnet_client, "identify", lambda _: (_ for _ in ()).throw(AssertionError)
+    )
+
+    assert api_main._maybe_consult_plantnet("leaf.jpg", "ok") is None

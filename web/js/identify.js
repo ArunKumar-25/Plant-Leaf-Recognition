@@ -70,24 +70,25 @@
             document.getElementById("uncertain-species").textContent = payload.species;
             document.getElementById("uncertain-confidence").textContent = pct;
             renderTopK(document.getElementById("uncertain-topk"), payload.top_k);
+            renderPlantnetNote(payload.plantnet, "uncertain");
             cards.uncertain.style.display = "block";
         } else {
-            renderPlantnetNote(payload.plantnet);
+            renderPlantnetNote(payload.plantnet, "unknown");
             cards.unknown.style.display = "block";
         }
     }
 
-    function renderPlantnetNote(plantnet) {
-        const note = document.getElementById("unknown-plantnet");
+    function renderPlantnetNote(plantnet, prefix) {
+        const note = document.getElementById(prefix + "-plantnet");
         if (!note) return;
         if (!plantnet || !plantnet.name) {
             note.style.display = "none";
             return;
         }
-        document.getElementById("plantnet-species").textContent = plantnet.name;
-        document.getElementById("plantnet-common").textContent = plantnet.common ? "(" + plantnet.common + ")" : "";
-        document.getElementById("plantnet-score").textContent = Math.round(plantnet.score * 100) + "%";
-        document.getElementById("plantnet-staged-note").textContent = plantnet.staged
+        document.getElementById(prefix + "-plantnet-species").textContent = plantnet.name;
+        document.getElementById(prefix + "-plantnet-common").textContent = plantnet.common ? "(" + plantnet.common + ")" : "";
+        document.getElementById(prefix + "-plantnet-score").textContent = Math.round(plantnet.score * 100) + "%";
+        document.getElementById(prefix + "-plantnet-staged-note").textContent = plantnet.staged
             ? "That's confident enough — it's been queued for review before it could ever affect the model."
             : "That's not confident enough to queue for review on its own — try a clearer or more typical photo of this leaf.";
         note.style.display = "block";

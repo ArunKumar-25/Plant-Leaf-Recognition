@@ -76,13 +76,18 @@ the fields above — see the frontend integration snippet's UI mapping.
 
 - `ok`: confident in known species
 - `uncertain`: weak match, show warning in UI
-- `unknown`: likely outside trained domain/species — the API may also
-  include a `plantnet` field (`{name, common, score, staged}`, second-opinion
-  suggestion) if Pl@ntNet was consulted. `staged` is `true` only if `score`
-  cleared `PLANTNET_STAGE_THRESHOLD` (default 0.70) — below that, Pl@ntNet's
-  guess is shown but was never queued for review; say so in the UI rather
-  than implying it might have been. See `docs/ARCHITECTURE.md`'s
-  "Active Learning & Self-Retraining" section.
+- `unknown`: likely outside trained domain/species
+
+Both `uncertain` and `unknown` responses may include a `plantnet` field
+(`{name, common, score, staged}`, second-opinion suggestion) if Pl@ntNet was
+consulted. `uncertain` is deliberately included, not just `unknown` — the
+model's raw softmax confidence can be high even when the OOD guard flags the
+photo as a weak domain match, so `uncertain` is exactly the band where a
+second opinion is most useful. `staged` is `true` only if `score` cleared
+`PLANTNET_STAGE_THRESHOLD` (default 0.70) — below that, Pl@ntNet's guess is
+shown but was never queued for review; say so in the UI rather than implying
+it might have been. See `docs/ARCHITECTURE.md`'s "Active Learning &
+Self-Retraining" section.
 
 ## Frontend integration snippet
 
@@ -108,7 +113,8 @@ UI mapping recommendation:
 - if `quality === "warn"`: show the `quality_warning` string as a caveat,
   regardless of which `decision` card is also shown
 - if `decision === "ok"`: show success card
-- if `decision === "uncertain"`: show amber warning + top_k options
+- if `decision === "uncertain"`: show amber warning + top_k options; if a
+  `plantnet` field is present, show its suggestion too
 - if `decision === "unknown"`: show fallback message + ask user to teach
   species; if a `plantnet` field is present, show its suggestion too
 

@@ -196,11 +196,17 @@ def _check_rate_limit(client_id: str) -> None:
 
 
 def _maybe_consult_plantnet(temp_path: str, decision: str) -> Dict[str, object] | None:
-    """Ask Pl@ntNet for a second opinion, but only on `unknown` and only up
-    to a daily cap (shared quota with the Streamlit admin tool's manual use).
-    Never raises — a Pl@ntNet outage degrades to "no second opinion", not a 500.
+    """Ask Pl@ntNet for a second opinion on `unknown` or `uncertain` results,
+    up to a daily cap (shared quota with the Streamlit admin tool's manual
+    use). `uncertain` is included deliberately -- the model's raw softmax
+    confidence can be severely miscalibrated on out-of-distribution photos
+    (confirmed live: a real upload scored 100% confidence on the wrong
+    species while the OOD guard correctly flagged it "uncertain"), so
+    without this, exactly the cases most worth a second opinion never got
+    one. Never raises — a Pl@ntNet outage degrades to "no second opinion",
+    not a 500.
     """
-    if decision != "unknown" or not PLANTNET_PUBLIC_FALLBACK_ENABLED:
+    if decision not in ("unknown", "uncertain") or not PLANTNET_PUBLIC_FALLBACK_ENABLED:
         return None
 
     global _plantnet_call_date, _plantnet_call_count
