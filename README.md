@@ -98,6 +98,19 @@ the full breakdown of what goes where.
   out-of-domain photos instead of guessing
 - Optional Pl@ntNet second-opinion fallback
 
+## Scope: what this is (and isn't)
+
+Plantify is a demonstration of a **full MLOps loop at small scale** — regression-
+gated retraining, active learning via a second-opinion model, monthly PR
+consolidation, CI/CD — not a production system sized for enterprise data
+volumes. The dataset is 15 species at ~75 images each; the pipeline around it
+(weekly automated retrain attempts, per-class regression gates, human-reviewed
+monthly PRs) is deliberately more elaborate than that dataset size strictly
+requires, because the pipeline mechanics are the point being demonstrated, not
+just the classifier. Free-tier hosting (Render/Railway) is also used
+deliberately to keep this at $0 running cost; see [DEPLOY.md](DEPLOY.md) for
+the always-on paid alternative if cold-start latency matters for your use.
+
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
