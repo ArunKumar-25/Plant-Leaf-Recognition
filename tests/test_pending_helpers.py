@@ -158,6 +158,33 @@ def test_gate_rejects_single_class_regression_even_if_aggregate_ok():
     assert "Quercus" in reason
 
 
+def test_gate_per_class_tolerance_defaults_to_tolerance_when_not_given():
+    # A single flipped image on a 15-image split swings recall ~6.7% -- with
+    # no separate per_class_tolerance, that still rejects against a 1% tolerance.
+    baseline = {"accuracy": 0.99, "per_class": {"Salix aurita": 1.0}}
+    new = {"accuracy": 0.99, "per_class": {"Salix aurita": 14 / 15}}
+    accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01)
+    assert accept is False
+    assert "per_class_regression" in reason
+
+
+def test_gate_wider_per_class_tolerance_survives_one_flipped_image():
+    baseline = {"accuracy": 0.99, "per_class": {"Salix aurita": 1.0}}
+    new = {"accuracy": 0.99, "per_class": {"Salix aurita": 14 / 15}}
+    accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01, per_class_tolerance=0.08)
+    assert accept is True
+    assert reason == "accepted"
+
+
+def test_gate_wider_per_class_tolerance_still_catches_real_regression():
+    baseline = {"accuracy": 0.90, "per_class": {"Acer": 0.95, "Quercus": 0.85}}
+    new = {"accuracy": 0.90, "per_class": {"Acer": 1.00, "Quercus": 0.50}}
+    accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01, per_class_tolerance=0.08)
+    assert accept is False
+    assert "per_class_regression" in reason
+    assert "Quercus" in reason
+
+
 def test_gate_ignores_classes_missing_from_new_eval():
     baseline = {"accuracy": 0.90, "per_class": {"Acer": 0.95, "NewSpecies": 0.80}}
     new = {"accuracy": 0.90, "per_class": {"Acer": 0.96}}

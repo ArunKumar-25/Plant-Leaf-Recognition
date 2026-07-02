@@ -4,15 +4,23 @@ beyond reading the two metrics JSON files produced by evaluate_model.py.
 Accepts a retrained model only if:
   - overall accuracy is >= baseline accuracy - tolerance, AND
   - no class present in both baseline and new metrics regresses by more than
-    `tolerance` (an aggregate-only check could hide one class getting wrecked
-    while the average looks fine).
+    per_class_tolerance (an aggregate-only check could hide one class getting
+    wrecked while the average looks fine).
+
+per_class_tolerance defaults to `tolerance` if not given, but the two are
+deliberately separate: with only ~15 test images per class, a single flipped
+prediction swings that class's recall by ~6.7% -- a 1% aggregate tolerance
+applied per-class would reject on pure sampling noise every time, especially
+once baseline sits at (or near) 100% with no slack to absorb it. A wider
+per-class tolerance (e.g. 0.08) survives one flipped image while still
+catching a real multi-image regression.
 
 A rejected retrain is a normal, successful outcome for this script (exit 0
 either way) — the workflow decides what to do with accept=true/false.
 
 Usage:
     python scripts/regression_gate.py --baseline reports/_baseline_metrics.json \
-        --new reports/_new_metrics.json --tolerance 0.01
+        --new reports/_new_metrics.json --tolerance 0.01 --per-class-tolerance 0.08
 """
 from __future__ import annotations
 
@@ -36,9 +44,16 @@ def _write_github_output(name: str, value: str) -> None:
 
 
 def evaluate_gate(
-    baseline: dict, new: dict, tolerance: float, new_species_min_recall: float = 0.60
+    baseline: dict,
+    new: dict,
+    tolerance: float,
+    new_species_min_recall: float = 0.60,
+    per_class_tolerance: float | None = None,
 ) -> tuple[bool, str]:
     """Pure function: returns (accept, reason). Exposed for unit testing."""
+    if per_class_tolerance is None:
+        per_class_tolerance = tolerance
+
     baseline_acc = baseline.get("accuracy")
     new_acc = new.get("accuracy")
 
@@ -56,8 +71,10 @@ def evaluate_gate(
         new_recall = new_per_class.get(species)
         if new_recall is None:
             continue  # class not present in new eval (e.g. data churn) — not this gate's concern
-        if new_recall < base_recall - tolerance:
-            return False, f"per_class_regression: {species} {new_recall:.4f} < {base_recall:.4f} - {tolerance}"
+        if new_recall < base_recall - per_class_tolerance:
+            return False, (
+                f"per_class_regression: {species} {new_recall:.4f} < {base_recall:.4f} - {per_class_tolerance}"
+            )
 
     # A class with no baseline is brand new this cycle -- nothing to regress
     # against, so apply an absolute recall floor instead.
@@ -86,6 +103,14 @@ def main() -> int:
     parser.add_argument("--new", required=True)
     parser.add_argument("--tolerance", type=float, default=0.01)
     parser.add_argument(
+        "--per-class-tolerance",
+        type=float,
+        default=None,
+        help="Per-class recall regression tolerance, wider than --tolerance by default reasoning "
+        "since a small per-class test split makes even one flipped prediction swing recall a lot. "
+        "Defaults to --tolerance if not given.",
+    )
+    parser.add_argument(
         "--new-species-min-recall",
         type=float,
         default=0.60,
@@ -98,7 +123,9 @@ def main() -> int:
     with open(args.new, encoding="utf-8") as handle:
         new = json.load(handle)
 
-    accept, reason = evaluate_gate(baseline, new, args.tolerance, args.new_species_min_recall)
+    accept, reason = evaluate_gate(
+        baseline, new, args.tolerance, args.new_species_min_recall, args.per_class_tolerance
+    )
 
     baseline_acc = baseline.get("accuracy")
     new_acc = new.get("accuracy")

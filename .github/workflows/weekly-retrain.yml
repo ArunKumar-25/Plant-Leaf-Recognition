@@ -99,6 +99,7 @@ jobs:
             --baseline artifacts/reports/_baseline_metrics.json \
             --new artifacts/reports/_new_metrics.json \
             --tolerance 0.01 \
+            --per-class-tolerance 0.08 \
             --new-species-min-recall 0.60
 
       - name: Finalize manifest statuses after accepted gate

@@ -193,9 +193,15 @@ does. Nothing here ever touches `main`.
    baseline, retrain (`scripts/train_model.py`, unchanged) on the merged
    `data/`, evaluate the result, and run the **regression gate**
    (`scripts/regression_gate.py`): accept only if aggregate accuracy is
-   within tolerance of baseline, no single existing class's recall
-   regressed, and any freshly-introduced class clears an absolute recall
-   floor (`NEW_SPECIES_MIN_RECALL`, default 0.60).
+   within `--tolerance` (1%) of baseline, no single existing class's recall
+   regressed by more than `--per-class-tolerance` (8%), and any
+   freshly-introduced class clears an absolute recall floor
+   (`NEW_SPECIES_MIN_RECALL`, default 0.60). Per-class tolerance is
+   deliberately wider than aggregate: with only ~15 test images per class, a
+   single flipped prediction swings that class's recall ~6.7% on its own —
+   a 1% tolerance there would reject on sampling noise almost every cycle,
+   especially once baseline sits at (or near) 100% with no slack to absorb
+   it.
 3. Accepted → opens or updates **one pull request per calendar month**
    (`artifacts/`, `data/` — now including this week's merged staged
    additions — and the manifest, on an `auto-retrain/YYYY-MM` branch), body
