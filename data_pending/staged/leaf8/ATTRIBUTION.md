@@ -12,3 +12,8 @@ Images in this folder sourced from [GBIF](https://www.gbif.org/) (scientific nam
 - `gbif_5068278287_2.jpg` — unknown, https://creativecommons.org/licenses/by-sa/4.0/legalcode. Source: <https://id.digitarium.fi/api/Q.498356/Preview001.jpg>
 - `gbif_4459148863_3.jpg` — unknown, https://creativecommons.org/licenses/by-sa/4.0/legalcode. Source: <https://id.digitarium.fi/api/Q.316024/Preview001.jpg>
 - `gbif_4459150993_4.jpg` — unknown, https://creativecommons.org/licenses/by-sa/4.0/legalcode. Source: <https://id.digitarium.fi/api/Q.316551/Preview001.jpg>
+- `gbif_4459148077_0.jpg` — unknown, https://creativecommons.org/licenses/by-sa/4.0/legalcode. Source: <https://id.digitarium.fi/api/Q.316906/Preview001.jpg>
+- `gbif_3020091128_1.jpg` — TAA - Estonian University of Life Sciences; Institute of Agricultural and Environmental Sciences; Vascular Plant Herbarium, https://creativecommons.org/licenses/by-sa/4.0/. Source: <https://app.plutof.ut.ee/filerepository/view/3180914>
+- `gbif_5068278287_2.jpg` — unknown, https://creativecommons.org/licenses/by-sa/4.0/legalcode. Source: <https://id.digitarium.fi/api/Q.498356/Preview001.jpg>
+- `gbif_4459148863_3.jpg` — unknown, https://creativecommons.org/licenses/by-sa/4.0/legalcode. Source: <https://id.digitarium.fi/api/Q.316024/Preview001.jpg>
+- `gbif_4459150993_4.jpg` — unknown, https://creativecommons.org/licenses/by-sa/4.0/legalcode. Source: <https://id.digitarium.fi/api/Q.316551/Preview001.jpg>
