@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import api.main as api_main
+from plantify import inference
 
 
 def _jpeg_bytes(array: np.ndarray) -> bytes:
@@ -17,7 +18,7 @@ def _jpeg_bytes(array: np.ndarray) -> bytes:
 
 
 def _client_without_model_load(monkeypatch):
-    monkeypatch.setattr(api_main, "_load_once", lambda: None)
+    monkeypatch.setattr(inference, "load_once", lambda: None)
     return TestClient(api_main.app)
 
 
@@ -95,7 +96,7 @@ def test_leaf_scan_quality_ok_band(tmp_path):
     path = tmp_path / "ok.jpg"
     path.write_bytes(_jpeg_bytes(array))
 
-    assert api_main._leaf_scan_quality(str(path)) == "ok"
+    assert inference.leaf_scan_quality(str(path)) == "ok"
 
 
 def test_leaf_scan_quality_reject_band_no_plain_background(tmp_path):
@@ -105,13 +106,13 @@ def test_leaf_scan_quality_reject_band_no_plain_background(tmp_path):
     path = tmp_path / "reject.jpg"
     path.write_bytes(_jpeg_bytes(array))
 
-    assert api_main._leaf_scan_quality(str(path)) == "reject"
+    assert inference.leaf_scan_quality(str(path)) == "reject"
 
 
 def test_leaf_scan_quality_reject_band_undecodable_file(tmp_path):
     path = tmp_path / "not-an-image.jpg"
     path.write_bytes(b"this is not image data")
-    assert api_main._leaf_scan_quality(str(path)) == "reject"
+    assert inference.leaf_scan_quality(str(path)) == "reject"
 
 
 def test_leaf_scan_quality_warn_band_borderline(tmp_path):
@@ -123,12 +124,12 @@ def test_leaf_scan_quality_warn_band_borderline(tmp_path):
     path = tmp_path / "warn.jpg"
     path.write_bytes(_jpeg_bytes(array))
 
-    assert api_main._leaf_scan_quality(str(path)) == "warn"
+    assert inference.leaf_scan_quality(str(path)) == "warn"
 
 
 def test_predict_rejects_non_leaf_photo_without_running_model(monkeypatch):
     client = _client_without_model_load(monkeypatch)
-    monkeypatch.setattr(api_main, "_leaf_scan_quality", lambda _path: "reject")
+    monkeypatch.setattr(inference, "leaf_scan_quality", lambda _path: "reject")
 
     called = {"predict": False}
 
@@ -136,7 +137,7 @@ def test_predict_rejects_non_leaf_photo_without_running_model(monkeypatch):
         called["predict"] = True
         raise AssertionError("model should never run for a rejected upload")
 
-    monkeypatch.setattr(api_main, "_predict_topk", _fail_if_called)
+    monkeypatch.setattr(inference, "predict_topk", _fail_if_called)
 
     array = np.full((64, 64, 3), 255, dtype=np.uint8)
     response = client.post(
@@ -150,13 +151,13 @@ def test_predict_rejects_non_leaf_photo_without_running_model(monkeypatch):
 
 
 def _mock_unknown_prediction(monkeypatch):
-    monkeypatch.setattr(api_main, "_leaf_scan_quality", lambda _path: "ok")
+    monkeypatch.setattr(inference, "leaf_scan_quality", lambda _path: "ok")
     monkeypatch.setattr(
-        api_main,
-        "_predict_topk",
+        inference,
+        "predict_topk",
         lambda *_a, **_k: {"species": "Acer", "confidence": 0.1, "top_k": [], "array": np.zeros((1, 1, 1, 1))},
     )
-    monkeypatch.setattr(api_main, "_domain_similarity", lambda *_a, **_k: None)
+    monkeypatch.setattr(inference, "domain_similarity", lambda *_a, **_k: None)
 
 
 def _mock_uncertain_prediction(monkeypatch):
@@ -165,14 +166,14 @@ def _mock_uncertain_prediction(monkeypatch):
     # 100% confident and still wrong on (a real Sorbus intermedia leaf
     # misclassified as Quercus), which is exactly why this band also
     # deserves a Pl@ntNet second opinion.
-    monkeypatch.setattr(api_main, "_leaf_scan_quality", lambda _path: "ok")
+    monkeypatch.setattr(inference, "leaf_scan_quality", lambda _path: "ok")
     monkeypatch.setattr(
-        api_main,
-        "_predict_topk",
+        inference,
+        "predict_topk",
         lambda *_a, **_k: {"species": "Quercus", "confidence": 1.0, "top_k": [], "array": np.zeros((1, 1, 1, 1))},
     )
-    monkeypatch.setattr(api_main, "_ood_threshold", 0.90)
-    monkeypatch.setattr(api_main, "_domain_similarity", lambda *_a, **_k: 0.80)
+    monkeypatch.setattr(inference, "_ood_threshold", 0.90)
+    monkeypatch.setattr(inference, "domain_similarity", lambda *_a, **_k: 0.80)
 
 
 def test_plantnet_result_below_threshold_marked_not_staged(monkeypatch):

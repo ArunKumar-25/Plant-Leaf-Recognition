@@ -14,40 +14,29 @@ from typing import Dict, List
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-import cv2
 import numpy as np
 import requests
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
-from tensorflow import keras
-from tensorflow.keras.preprocessing import image as keras_image
 
-from plantify import plantnet_client
+from plantify import inference, plantnet_client
 from plantify.config import (
-    CONFIDENCE_FLOOR,
     CORS_ALLOW_HEADERS,
     CORS_ALLOW_METHODS,
     CORS_ALLOW_ORIGINS,
     GITHUB_BRANCH,
     GITHUB_CONTRIB_TOKEN,
     GITHUB_REPO,
-    IMG_SIZE,
     MAX_UPLOAD_BYTES,
-    MAX_WHITE_BG,
-    MIN_WHITE_BG,
-    MODEL_DIR,
-    OOD_FILE,
     PLANTNET_DAILY_CAP,
     PLANTNET_PUBLIC_FALLBACK_ENABLED,
     PLANTNET_STAGE_THRESHOLD,
     RATE_LIMIT_REQUESTS_PER_MINUTE,
-    REJECT_MAX_WHITE_BG,
-    REJECT_MIN_WHITE_BG,
     STAGING_MAX_RETRIES,
 )
-from plantify.data import PENDING_MANIFEST, build_pending_row, load_labels
+from plantify.data import PENDING_MANIFEST, build_pending_row
 
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 _staging_logger = logging.getLogger("plantify.staging")
@@ -65,7 +54,7 @@ ALLOWED_CONTENT_TYPES = {
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    _load_once()
+    inference.load_once()
     yield
 
 
@@ -91,87 +80,9 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
-_model = None
-_labels: List[str] = []
-_embedder = None
-_ood_feats = None
-_ood_threshold = None
 _plantnet_call_date: datetime.date | None = None
 _plantnet_call_count = 0
 _request_windows: Dict[str, List[float]] = {}
-
-
-def _load_once() -> None:
-    global _model, _labels, _embedder, _ood_feats, _ood_threshold
-    if _model is not None:
-        return
-
-    _model = keras.models.load_model(MODEL_DIR)
-    _labels = load_labels()
-
-    try:
-        base = next(
-            layer for layer in _model.layers if "mobilenet" in layer.name.lower()
-        )
-        rescale = next(
-            layer for layer in _model.layers if "rescal" in layer.name.lower()
-        )
-        inp = keras.Input((IMG_SIZE, IMG_SIZE, 3))
-        _embedder = keras.Model(inp, base(rescale(inp)))
-    except Exception:
-        _embedder = None
-
-    if os.path.exists(OOD_FILE):
-        d = np.load(OOD_FILE)
-        _ood_feats = d["feats"]
-        _ood_threshold = float(d["threshold"])
-
-
-def _leaf_scan_quality(path: str) -> str:
-    """Classify upload quality by near-white-background fraction into three
-    bands: "ok" (matches the training domain), "warn" (leaf-like but
-    off-format -- still worth a prediction, flagged as less reliable), or
-    "reject" (doesn't look like an attempted leaf photo at all -- caller
-    should skip the model entirely)."""
-    img = cv2.imread(path)
-    if img is None:
-        return "reject"
-    white = float((img > 200).all(2).mean())
-    if MIN_WHITE_BG <= white <= MAX_WHITE_BG:
-        return "ok"
-    if REJECT_MIN_WHITE_BG <= white <= REJECT_MAX_WHITE_BG:
-        return "warn"
-    return "reject"
-
-
-def _predict_topk(path: str, k: int = 3) -> Dict[str, object]:
-    img = keras_image.load_img(path, target_size=(IMG_SIZE, IMG_SIZE))
-    arr = (
-        keras_image.img_to_array(img)
-        .reshape(-1, IMG_SIZE, IMG_SIZE, 3)
-        .astype("float32")
-    )
-    out = _model.predict(arr, verbose=0)[0]
-
-    order = np.argsort(out)[::-1][:k]
-    top_k = []
-    for idx in order:
-        label = _labels[int(idx)] if int(idx) < len(_labels) else "unknown"
-        top_k.append({"species": label, "confidence": float(out[int(idx)])})
-
-    best_idx = int(order[0]) if len(order) else 0
-    best_conf = float(out[best_idx]) if len(order) else 0.0
-    species = _labels[best_idx] if best_idx < len(_labels) else "unknown"
-    return {"species": species, "confidence": best_conf, "top_k": top_k, "array": arr}
-
-
-def _domain_similarity(arr: np.ndarray) -> float | None:
-    if _embedder is None or _ood_feats is None:
-        return None
-    emb = _embedder.predict(arr, verbose=0)[0]
-    n = np.linalg.norm(emb)
-    emb = emb / (n if n else 1.0)
-    return float((_ood_feats @ emb).max())
 
 
 def _client_id(request: Request) -> str:
@@ -350,25 +261,18 @@ def _stage_candidate(image_bytes: bytes, row: Dict[str, object]) -> None:
 @app.get("/health")
 def health() -> JSONResponse:
     try:
-        _load_once()
+        inference.load_once()
     except Exception:
         _api_logger.exception("Model failed to load")
         return JSONResponse(
             status_code=503, content={"status": "error", "detail": "model failed to load"}
         )
-    return JSONResponse(
-        {
-            "status": "ok",
-            "model_loaded": _model is not None,
-            "num_classes": len(_labels),
-            "ood_enabled": _ood_feats is not None,
-        }
-    )
+    return JSONResponse({"status": "ok", **inference.status()})
 
 
 @app.post("/predict")
 async def predict(request: Request, file: UploadFile = File(...)):
-    _load_once()
+    inference.load_once()
     _check_rate_limit(_client_id(request))
 
     if not file.filename:
@@ -397,40 +301,30 @@ async def predict(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Invalid image") from exc
 
     try:
-        quality = _leaf_scan_quality(temp_path)
+        try:
+            result = inference.predict_image(temp_path)
+        except Exception:
+            _api_logger.exception("Model inference failed")
+            raise HTTPException(status_code=503, detail="Model temporarily unavailable") from None
+
+        quality = result["quality"]
         if quality == "reject":
             raise HTTPException(
                 status_code=422,
                 detail="This doesn't look like a leaf photo. Try a clear photo of a single leaf on a plain background.",
             )
 
-        try:
-            pred = _predict_topk(temp_path, k=3)
-            sim = _domain_similarity(pred["array"])
-        except Exception:
-            _api_logger.exception("Model inference failed")
-            raise HTTPException(status_code=503, detail="Model temporarily unavailable") from None
-
-        if sim is None:
-            decision = "ok" if pred["confidence"] >= CONFIDENCE_FLOOR else "unknown"
-        else:
-            high = _ood_threshold
-            low = max(0.60, high - 0.15)
-            if sim >= high:
-                decision = "ok"
-            elif sim >= low:
-                decision = "uncertain"
-            else:
-                decision = "unknown"
+        decision = result["decision"]
+        sim = result["domain_similarity"]
 
         payload = {
-            "species": pred["species"],
-            "confidence": pred["confidence"],
-            "top_k": pred["top_k"],
+            "species": result["species"],
+            "confidence": result["confidence"],
+            "top_k": result["top_k"],
             "decision": decision,
             "quality": quality,
             "domain_similarity": sim,
-            "num_classes": len(_labels),
+            "num_classes": result["num_classes"],
         }
         if quality == "warn":
             payload["quality_warning"] = (
@@ -444,8 +338,8 @@ async def predict(request: Request, file: UploadFile = File(...)):
             payload["plantnet"] = plantnet_top
             if plantnet_top["score"] >= PLANTNET_STAGE_THRESHOLD:
                 row = build_pending_row(
-                    predicted_species=pred["species"],
-                    model_confidence=pred["confidence"],
+                    predicted_species=result["species"],
+                    model_confidence=result["confidence"],
                     domain_similarity=sim,
                     decision=decision,
                     plantnet_species=plantnet_top["name"],
