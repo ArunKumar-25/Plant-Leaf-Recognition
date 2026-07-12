@@ -26,6 +26,16 @@
   --error-bg: #fbebe6;
   --error-line: #c2593a;
 
+  /* Card/panel surfaces and the two accent-text roles (heading weight vs.
+     small icon/border weight) are their own variables, separate from
+     --forest/--forest-dark -- those two stay fixed dark-green bands (used
+     as backgrounds with white text) in both themes, while these adapt per
+     theme since they're read as foreground text/border on --paper. */
+  --surface: #fff;
+  --header-bg: rgba(250, 246, 236, 0.9);
+  --accent-heading: #1c2e21;
+  --accent-icon: #2f4a34;
+
   --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
@@ -34,6 +44,27 @@
   --radius: 14px;
   --radius-sm: 8px;
   --shadow-soft: 0 12px 32px -18px rgba(30, 42, 28, 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #171d16;
+    --paper-alt: #1e251b;
+    --ink: #ecefe6;
+    --ink-soft: #b9c2b0;
+    --ink-faint: #7c8874;
+    --forest-tint: #223226;
+    --accent: #e2a074;
+    --accent-dark: #f0b98d;
+    --accent-tint: #3a2c22;
+    --line: #333a2c;
+    --line-strong: #454d3b;
+    --surface: #1e2420;
+    --header-bg: rgba(23, 29, 22, 0.85);
+    --accent-heading: #a9d6b5;
+    --accent-icon: #8bc79c;
+    --shadow-soft: 0 12px 32px -18px rgba(0, 0, 0, 0.65);
+  }
 }
 
 /* Smooth cross-document transitions between pages, in browsers that support
@@ -88,7 +119,7 @@ h1, h2, h3, h4, h5 {
   font-weight: 600;
   line-height: 1.15;
   margin: 0 0 0.5em;
-  color: var(--forest-dark);
+  color: var(--accent-heading);
 }
 
 h1 { font-size: clamp(2.4rem, 4.6vw, 3.6rem); font-weight: 500; }
@@ -173,11 +204,11 @@ code {
 .btn-outline {
   background: transparent;
   border-color: var(--line-strong);
-  color: var(--forest-dark);
+  color: var(--accent-heading);
 }
 
 .btn-outline:hover {
-  border-color: var(--forest);
+  border-color: var(--accent-icon);
   background: var(--forest-tint);
 }
 
@@ -198,7 +229,7 @@ code {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: rgba(250, 246, 236, 0.9);
+  background: var(--header-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
@@ -217,13 +248,13 @@ code {
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 1.25rem;
-  color: var(--forest-dark);
+  color: var(--accent-heading);
 }
 
 .brand-mark {
   width: 30px;
   height: 30px;
-  color: var(--forest);
+  color: var(--accent-icon);
 }
 
 .nav-links {
@@ -245,7 +276,7 @@ code {
 
 .nav-links a:hover,
 .nav-links a.active {
-  color: var(--forest-dark);
+  color: var(--accent-heading);
 }
 
 .nav-links a.active::after {
@@ -277,7 +308,7 @@ code {
   border: none;
   cursor: pointer;
   padding: 6px;
-  color: var(--forest-dark);
+  color: var(--accent-heading);
 }
 
 @media (max-width: 860px) {
@@ -352,13 +383,13 @@ code {
 .hero-link {
   font-size: 0.94rem;
   font-weight: 600;
-  color: var(--forest-dark);
+  color: var(--accent-heading);
   border-bottom: 1px solid var(--line-strong);
   padding-bottom: 2px;
 }
 
 .hero-link:hover {
-  border-color: var(--forest-dark);
+  border-color: var(--accent-heading);
 }
 
 .specimen-board {
@@ -368,7 +399,7 @@ code {
 
 .specimen-card {
   position: absolute;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-soft);
@@ -492,7 +523,7 @@ code {
 }
 
 .cap-card {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 28px 26px;
@@ -514,7 +545,7 @@ code {
   height: 42px;
   border-radius: 10px;
   background: var(--forest-tint);
-  color: var(--forest);
+  color: var(--accent-icon);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -605,7 +636,7 @@ code {
 }
 
 .upload-card {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 32px;
@@ -621,7 +652,7 @@ code {
 
 .dropzone.has-file {
   border-style: solid;
-  border-color: var(--forest);
+  border-color: var(--accent-icon);
   background: var(--forest-tint);
 }
 
@@ -634,7 +665,7 @@ code {
 .dropzone .icon {
   width: 30px;
   height: 30px;
-  color: var(--forest);
+  color: var(--accent-icon);
   margin: 0 auto 12px;
 }
 
@@ -697,7 +728,7 @@ code {
   padding: 22px 24px;
   border-radius: var(--radius-sm);
   border-left: 4px solid;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
 }
 
@@ -726,7 +757,7 @@ code {
 .result-card .confidence-tag {
   font-family: var(--font-mono);
   font-weight: 600;
-  color: var(--forest-dark);
+  color: var(--accent-heading);
 }
 
 .top-k-list {
@@ -750,7 +781,7 @@ code {
 
 .top-k-row .top-k-pct {
   font-family: var(--font-mono);
-  color: var(--forest-dark);
+  color: var(--accent-heading);
 }
 
 .top-k-bar {
@@ -829,7 +860,7 @@ code {
 }
 
 .article-card {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 30px 32px;

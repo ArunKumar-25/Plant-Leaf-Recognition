@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://arunkumar-25.github.io/Plantify/sitemap.xml
