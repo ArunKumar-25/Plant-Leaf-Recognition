@@ -29,20 +29,24 @@ see `.github/workflows/deploy-pages.yml` and "Wiring notes" in
 ## 2. `api/` → needs its own host (GitHub Pages is static-only)
 
 **DigitalOcean App Platform (recommended if you have GitHub Student Pack
-access)** — Render/Railway's free tiers spin down after ~15 min idle, so the
-first request after a quiet period takes 60-90s (TensorFlow + model load).
-DigitalOcean App Platform's cheapest **paid** tier (~$5/mo, covered for a
-long time by the Student Pack's $200 credit) runs continuously with no
-spin-down, for the same "connect GitHub repo, auto-deploy" simplicity as
-Render:
+access)** — Render/Railway's free tiers spin down after ~15 min idle (first
+request after a quiet period takes 60-90s), and their free/cheapest tier's
+512MB RAM cap is not enough headroom for this app — confirmed live: `/predict`
+OOM-crashes on Render's 512MB tier every time (TensorFlow's own runtime
+overhead plus inference-time buffers routinely peaks at 600+MB). DigitalOcean
+App Platform's **1 GiB** tier (~$10/mo, still covered for years by the
+Student Pack's $200 credit) runs continuously with no spin-down and enough
+memory, for the same "connect GitHub repo, auto-deploy" simplicity as Render:
 
 1. Activate the DigitalOcean offer at <https://education.github.com/pack> if you haven't.
 2. DigitalOcean dashboard → **Apps** → **Create App** → connect this GitHub repo, branch `main`.
 3. It should detect `Dockerfile.api` automatically (or point it at that path explicitly).
-4. Pick the **Basic** plan (not the free/dev tier — that one sleeps too), smallest size is enough.
+4. Pick the **Shared (Fixed)** plan at **1 GiB / 1 vCPU** (~$10/mo) — not the
+   512MB tier (same one DigitalOcean also offers at ~$5/mo), and not the
+   free/dev tier (that one sleeps too).
 5. Add the env vars below, deploy.
 
-**Render / Railway (free tier, but cold-starts)** — same `Dockerfile.api`, no code changes needed. Fine for a low-traffic demo where the occasional slow first request is acceptable.
+**Render / Railway (free tier)** — same `Dockerfile.api`, no code changes needed, but expect the same OOM crash on `/predict` this project hit on Render's free tier unless the workload is lightened first (e.g. converting to TensorFlow Lite for a smaller runtime footprint). Cold-starts are the lesser problem here.
 
 Either way, set these env vars on the host:
 ```bash
@@ -61,7 +65,17 @@ access to that tooling:
 
 1. Go to <https://share.streamlit.io> and sign in with GitHub.
 2. **New app** → pick your repo, branch `main`, main file `app.py`.
-3. Deploy. It installs `requirements.txt` automatically.
+3. **Before clicking Deploy**, open **Advanced settings** and explicitly pick
+   **Python 3.11** from the version dropdown. Community Cloud defaults new
+   apps to whatever the latest Python is (3.14 as of this writing) —
+   `tensorflow-cpu==2.15.0` has no wheel for anything newer than 3.11, so a
+   default-version deploy fails immediately with a dependency resolution
+   error. `runtime.txt` (`python-3.11`) is also committed in the repo root
+   for this, but multiple 2026 reports say Community Cloud currently ignores
+   `runtime.txt` — the Advanced settings dropdown is the reliable one.
+   **Python version can't be changed after deploying** — picking wrong means
+   deleting the app and redeploying from scratch, not just retrying.
+4. Deploy. It installs `requirements.txt` automatically.
 
 Notes:
 - `requirements.txt` already uses `tensorflow-cpu` and `opencv-python-headless`
