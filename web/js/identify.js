@@ -1,20 +1,7 @@
-import { Client, handle_file } from "https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js";
-
 (function () {
     "use strict";
 
-    // Backend is a Hugging Face Space (gradio_app.py) running the same
-    // plantify.inference logic api/main.py does -- swapped in while that
-    // FastAPI host doesn't have anywhere reliable to run. See DEPLOY.md.
-    const GRADIO_BASE = window.PLANTIFY_GRADIO_BASE || "http://localhost:7860";
-    let gradioClientPromise = null;
-
-    function getGradioClient() {
-        if (!gradioClientPromise) {
-            gradioClientPromise = Client.connect(GRADIO_BASE);
-        }
-        return gradioClientPromise;
-    }
+    const API_BASE = window.PLANTIFY_API_BASE || "http://localhost:8000";
 
     const fileInput = document.getElementById("leaf-file");
     const fileNameEl = document.getElementById("leaf-file-name");
@@ -153,35 +140,26 @@ import { Client, handle_file } from "https://cdn.jsdelivr.net/npm/@gradio/client
         cards.error.style.display = "block";
     }
 
-    const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
-    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/bmp", "image/tiff", "image/webp"];
-
     async function predictLeaf(file) {
-        // The backend no longer fronts these with its own HTTP status codes
-        // (Gradio's client doesn't map errors that granularly), so the
-        // same checks the API used to enforce (413/415) happen here first.
-        if (file.size > MAX_UPLOAD_BYTES) {
-            throw new Error("That file is too large. Try a smaller photo.");
-        }
-        if (ALLOWED_TYPES.indexOf(file.type) === -1) {
-            throw new Error("Unsupported file type. Use JPG, PNG, BMP, TIFF, or WebP.");
-        }
+        const form = new FormData();
+        form.append("file", file);
 
-        let result;
-        try {
-            const client = await getGradioClient();
-            const response = await client.predict("/identify", [handle_file(file)]);
-            result = response.data[0];
-        } catch (err) {
-            throw new Error("Couldn't reach the prediction service. Is it running?");
-        }
+        const res = await fetch(API_BASE + "/predict", {
+            method: "POST",
+            body: form,
+        });
 
-        if (result.quality === "reject") {
-            throw new Error(
-                "This doesn't look like a leaf photo. Try a clear photo of a single leaf on a plain background."
-            );
+        if (!res.ok) {
+            const detail = await res.json().catch(function () { return {}; });
+            if (res.status === 413) {
+                throw new Error("That file is too large. Try a smaller photo.");
+            }
+            if (res.status === 415) {
+                throw new Error("Unsupported file type. Use JPG, PNG, BMP, TIFF, or WebP.");
+            }
+            throw new Error(detail.detail || ("Prediction failed (" + res.status + ")"));
         }
-        return result;
+        return res.json();
     }
 
     const dropzone = document.getElementById("dropzone");
