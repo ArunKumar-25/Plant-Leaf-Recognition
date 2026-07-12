@@ -16,11 +16,51 @@
     };
     const placeholder = document.getElementById("result-placeholder");
     const qualityWarning = document.getElementById("quality-warning");
+    const progress = document.getElementById("result-progress");
+    const progressFill = document.getElementById("progress-fill");
+    const progressLabel = document.getElementById("progress-label");
 
     function hideAllCards() {
         Object.values(cards).forEach(function (el) { el.style.display = "none"; });
         if (placeholder) placeholder.style.display = "none";
         if (qualityWarning) qualityWarning.style.display = "none";
+        if (progress) progress.style.display = "none";
+    }
+
+    // Plain-language stages a visitor can follow, not a literal readout of
+    // backend steps -- the API is a single request, so this is a
+    // best-guess march through what's actually happening, timed to feel
+    // like real progress without ever claiming to reach 100% before the
+    // response is back (last stage just sits and waits for it).
+    const PROGRESS_STAGES = [
+        { label: "Uploading your photo…", pct: 12 },
+        { label: "Checking the photo quality…", pct: 32 },
+        { label: "Analyzing the leaf shape and texture…", pct: 58 },
+        { label: "Comparing against known species…", pct: 82 },
+        { label: "Almost done…", pct: 92 },
+    ];
+    let progressTimer = null;
+
+    function startProgress() {
+        if (!progress) return;
+        hideAllCards();
+        progress.style.display = "block";
+        let step = 0;
+        progressFill.style.width = PROGRESS_STAGES[0].pct + "%";
+        progressLabel.textContent = PROGRESS_STAGES[0].label;
+        progressTimer = window.setInterval(function () {
+            step = Math.min(step + 1, PROGRESS_STAGES.length - 1);
+            progressFill.style.width = PROGRESS_STAGES[step].pct + "%";
+            progressLabel.textContent = PROGRESS_STAGES[step].label;
+        }, 900);
+    }
+
+    function stopProgress() {
+        if (progressTimer !== null) {
+            window.clearInterval(progressTimer);
+            progressTimer = null;
+        }
+        if (progress) progress.style.display = "none";
     }
 
     function renderTopK(listEl, topK) {
@@ -173,12 +213,14 @@
         identifyBtn.disabled = true;
         identifyBtn.classList.add("is-loading");
         if (btnLabel) btnLabel.textContent = "Identifying...";
-        hideAllCards();
+        startProgress();
 
         try {
             const payload = await predictLeaf(file);
+            stopProgress();
             renderResult(payload);
         } catch (err) {
+            stopProgress();
             renderError(err.message || "Couldn't reach the prediction service. Is the API running?");
         } finally {
             identifyBtn.disabled = false;
