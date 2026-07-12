@@ -76,3 +76,91 @@ pip install -r requirements.txt
 python scripts/train_model.py   # retrains artifacts/model/ and regenerates artifacts/reports/
 streamlit run app.py            # launches the admin/retrain UI
 ```
+
+## 2026-07-12: active-learning pipeline had never once produced an accepted retrain
+
+A second full pass, this time on the self-retraining loop described in
+[docs/ARCHITECTURE.md](ARCHITECTURE.md)'s "Active Learning & Self-Retraining"
+section — it existed in full and ran on schedule, but had never once produced
+an accepted retrain since it was built.
+
+### What was wrong
+
+1. **GBIF reinforcement fetch pulled field photos, not specimen scans.**
+   `scripts/fetch_species_dataset.py` queried GBIF's occurrence search with no
+   filter on how a photo was taken. The model is trained on scanned single
+   leaves against a plain background; the fetcher was returning hand-holding-a-branch
+   field photos, whole trees against the sky, and similar — a domain mismatch
+   from the very images meant to reinforce the model.
+2. **The regression gate rejected every retrain, always on a different class,
+   on pure sampling noise.** With ~15 test images per class, one flipped
+   prediction swings a class's measured recall by ~6.7% — enough to blow past
+   even an already-widened flat percentage-point tolerance, with no real
+   quality regression underneath. Confirmed live: Issues #14, #15, #16, #18
+   each rejected a working retrain on a different class every time.
+3. **A rejected retrain leaves its staged data in place "for retry" — so
+   nothing was ever cleared.** Every daily-gather run since the project's
+   start staged images to the `contributions` branch; since every weekly
+   retrain before this pass was rejected, the backlog was never cleared and
+   kept accumulating for weeks, including pre-fix field photos.
+4. **`artifacts/reports/metrics.md` accuracy (100%) had drifted from what the
+   website and README claimed (98.7%)** — a later retrain improved the
+   committed model without the public-facing figures being updated to match.
+5. **Every "View source on GitHub" link, social share URL, `robots.txt`
+   sitemap, and the GBIF fetch User-Agent pointed at
+   `github.com/ArunKumar-25/Plantify` — a repo that doesn't exist.** The
+   actual repo is `ArunKumar-25/Plant-Leaf-Recognition`. Confirmed via a live
+   404 on the old URL.
+6. **Two frontend bugs, both pre-existing:** the "Try the demo" nav button had
+   invisible dark-on-dark text specifically on `identify.html` (a CSS
+   specificity collision between its own button styling and the active-nav-link
+   styling, since that link's `data-nav` happens to match that page). And
+   cross-page anchor links (e.g. "About" → `index.html#about-us`) landed with
+   an instant, jarring jump instead of the smooth scroll same-page anchor
+   clicks get, made worse by the `@view-transition` CSS rule silently
+   swallowing an attempted JS-driven smooth-scroll fix.
+
+### What was changed
+
+- `fetch_species_dataset.py` now filters GBIF results to
+  `basisOfRecord=PRESERVED_SPECIMEN` (herbarium scans, not field photos) plus
+  a post-download near-white-background check and a minimum-resolution
+  floor — none of which GBIF's metadata exposes up front.
+- `regression_gate.py` now runs a one-sided two-proportion significance test
+  on each class's raw correct/total counts (`per_class_support`, added to
+  `evaluate_model.py`'s output) instead of a flat tolerance, when both sides
+  have counts to compare — only rejects a class when the drop is
+  statistically unlikely (p < 0.05 by default) to be sampling noise. Falls
+  back to the previous flat-tolerance behavior otherwise (fully backward
+  compatible — verified against the exact Issue #18 shape).
+  - First real-world result: a retrain finally cleared the gate (baseline
+    96.20% → new 95.78%) and opened PR #19 — the first accepted retrain in
+    the project's history.
+- PR #19 itself was closed unmerged after inspection showed it swept in the
+  entire multi-week contaminated backlog (55 images, 11 classes), not just a
+  fresh batch — confirmed by directly viewing staged images (e.g. maple seed
+  pods against a blurry forest in `leaf2/Acer`). The stale backlog on
+  `contributions` was cleared (turned out to already be auto-cleared by the
+  workflow's own accept-path cleanup step) so future cycles rebuild it
+  cleanly with the fixed filter.
+- `web/index.html` and `README.md` accuracy figures updated from 98.7% to
+  100%, matching `artifacts/reports/metrics.md`.
+- Every `Plantify`-repo URL corrected to `Plant-Leaf-Recognition` across
+  `README.md`, `web/*.html`, `web/partials/*.html`, `web/robots.txt`,
+  `web/sitemap.xml`, and `fetch_species_dataset.py`'s User-Agent string.
+- Nav-CTA specificity fixed (`.nav-links a.nav-cta.active` now wins over the
+  generic active-link color rule); cross-page anchor scroll now animates
+  correctly via a `load`-time `scrollIntoView`, which required removing the
+  `@view-transition: navigation: auto` CSS rule entirely once testing showed
+  it reliably swallows any scroll made shortly after a cross-document
+  navigation.
+- Added `web/robots.txt` and `web/sitemap.xml` (both previously missing).
+- Added automatic `prefers-color-scheme: dark` support, then reverted it —
+  the original light palette is the intended look regardless of OS setting,
+  confirmed by direct feedback after shipping it.
+
+None of this needed real user traffic to find — it surfaced from actually
+running the pipeline end-to-end (rebuilding a working local environment,
+triggering the real GitHub Actions workflows, and reading the resulting PR
+diff and logs) rather than trusting that "the workflow exists and runs on
+schedule" meant it worked.

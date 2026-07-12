@@ -123,8 +123,13 @@ originally bootstrapped the initial 15 species — fetching and training were
 always two different concerns, they just used to happen in the same job.
 
 **Per-request (`api/main.py`):**
-1. `unknown` only — not `uncertain`, which already has a plausible model
-   guess. Gated by `PLANTNET_PUBLIC_FALLBACK_ENABLED` (default off).
+1. `unknown` or `uncertain` — `uncertain` is included deliberately, since raw
+   softmax confidence can be severely miscalibrated on out-of-distribution
+   photos (confirmed live: a real upload scored 100% confidence on the wrong
+   species while the domain-similarity guard correctly flagged it
+   `uncertain`), so limiting the second opinion to `unknown` would miss
+   exactly the cases most worth double-checking. Gated by
+   `PLANTNET_PUBLIC_FALLBACK_ENABLED` (default off).
 2. Rate-limited to `PLANTNET_DAILY_CAP` (default 300) Pl@ntNet calls/day,
    shared quota with the Streamlit tool's manual "Ask Pl@ntNet".
 3. If Pl@ntNet's top result scores `>= PLANTNET_STAGE_THRESHOLD` (default

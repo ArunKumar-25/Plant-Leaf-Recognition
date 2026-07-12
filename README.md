@@ -92,7 +92,7 @@ the full breakdown of what goes where.
 
 ## Core ML capabilities
 
-- 15-class Swedish Leaf Dataset classifier, 98.7% held-out test accuracy
+- 15-class Swedish Leaf Dataset classifier, 100% held-out test accuracy
   (see [artifacts/reports/metrics.md](artifacts/reports/metrics.md))
 - OOD thresholding using embedding similarity (`artifacts/ood.npz`) — rejects
   out-of-domain photos instead of guessing

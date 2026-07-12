@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://arunkumar-25.github.io/Plantify/sitemap.xml
+Sitemap: https://arunkumar-25.github.io/Plant-Leaf-Recognition/sitemap.xml

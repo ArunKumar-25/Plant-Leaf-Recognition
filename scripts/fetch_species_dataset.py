@@ -160,7 +160,7 @@ def _search_media(
 def _download_and_downsize(url: str, dest_path: str, timeout: int = 20) -> bool:
     try:
         req = urllib.request.Request(
-            url, headers={"User-Agent": "Plantify/1.0 (+https://github.com/ArunKumar-25/Plantify)"}
+            url, headers={"User-Agent": "Plantify/1.0 (+https://github.com/ArunKumar-25/Plant-Leaf-Recognition)"}
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
