@@ -46,27 +46,6 @@
   --shadow-soft: 0 12px 32px -18px rgba(30, 42, 28, 0.35);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #171d16;
-    --paper-alt: #1e251b;
-    --ink: #ecefe6;
-    --ink-soft: #b9c2b0;
-    --ink-faint: #7c8874;
-    --forest-tint: #223226;
-    --accent: #e2a074;
-    --accent-dark: #f0b98d;
-    --accent-tint: #3a2c22;
-    --line: #333a2c;
-    --line-strong: #454d3b;
-    --surface: #1e2420;
-    --header-bg: rgba(23, 29, 22, 0.85);
-    --accent-heading: #a9d6b5;
-    --accent-icon: #8bc79c;
-    --shadow-soft: 0 12px 32px -18px rgba(0, 0, 0, 0.65);
-  }
-}
-
 /* Smooth cross-document transitions between pages, in browsers that support
    it (Chrome/Edge 126+). No-op elsewhere — plain navigation, no JS needed. */
 @view-transition {
