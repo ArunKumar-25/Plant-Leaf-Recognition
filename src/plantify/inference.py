@@ -1,12 +1,10 @@
-"""Shared core prediction logic.
+"""Shared core prediction logic, used by api/main.py.
 
-Both api/main.py (FastAPI, used by web/identify.html) and the Gradio app
-(gradio_app.py, used as a fallback backend when the FastAPI host is down)
-need the exact same "given an image path, return the model's decision"
-behavior -- quality gate, top-k prediction, domain-similarity OOD check.
-Keeping it in one place means the two surfaces can't drift apart on what
-counts as "uncertain" vs "unknown", which the frontend's result cards
-depend on matching exactly.
+Kept separate from the FastAPI route handlers so the "given an image path,
+return the model's decision" behavior -- quality gate, top-k prediction,
+domain-similarity OOD check -- has one place to live if another surface
+(the Streamlit admin tool, a future backend) ever needs the same decision
+logic without duplicating what counts as "uncertain" vs "unknown".
 """
 from __future__ import annotations
 
@@ -119,9 +117,9 @@ def predict_image(path: str) -> Dict[str, object]:
     """End-to-end: quality gate -> prediction -> domain-similarity decision.
 
     Returns {"quality": "reject"} with no prediction fields if the image
-    doesn't look like an attempted leaf photo at all -- callers decide what
-    that means for them (api/main.py raises 422; the Gradio app just shows
-    a message), since that's presentation policy, not core inference.
+    doesn't look like an attempted leaf photo at all -- the caller decides
+    what that means for its own response (api/main.py raises 422), since
+    that's presentation policy, not core inference.
     """
     load_once()
     quality = leaf_scan_quality(path)

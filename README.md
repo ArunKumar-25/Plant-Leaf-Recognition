@@ -1,10 +1,10 @@
 # Plantify
 
-**Plantify is a plant leaf recognition model** — a machine learning project
-for plant leaf analysis. The first trained capability is **species
-identification**: a CNN classifier that takes a leaf photo and returns the
-species with a confidence score, with an honest "I'm not sure" (via an
-out-of-distribution guard) instead of a confident wrong guess.
+**Plantify** is a machine learning platform for identifying plants from
+photos. The first trained capability is **species identification**: a CNN
+classifier that takes a leaf photo and returns the species with a
+confidence score, with an honest "I'm not sure" (via an out-of-distribution
+guard) instead of a confident wrong guess.
 
 The `web/` site is a thin showcase layer, not the project itself — it exists
 to demo each ML capability and to give new ones a place to plug in. Adding a
@@ -107,9 +107,9 @@ volumes. The dataset is 15 species at ~75 images each; the pipeline around it
 (weekly automated retrain attempts, per-class regression gates, human-reviewed
 monthly PRs) is deliberately more elaborate than that dataset size strictly
 requires, because the pipeline mechanics are the point being demonstrated, not
-just the classifier. Free-tier hosting (Render/Railway) is also used
-deliberately to keep this at $0 running cost; see [DEPLOY.md](DEPLOY.md) for
-the always-on paid alternative if cold-start latency matters for your use.
+just the classifier. `api/` runs on Azure Container Apps with scale-to-zero
+(no traffic, no charge) to keep this near $0 running cost — see
+[DEPLOY.md](DEPLOY.md) for the setup and the always-on tradeoffs.
 
 ## Documentation
 
@@ -132,10 +132,11 @@ the always-on paid alternative if cold-start latency matters for your use.
 To keep costs near zero:
 
 - Frontend (`web/`): GitHub Pages, already automated (see above).
-- API/Backend (`api/`): Render/Railway free tier, or DigitalOcean
-  student credits, using the included `Dockerfile.api`.
-- ML admin app (`app.py`, optional): Streamlit Community Cloud.
-- Optional AWS learning without spend: LocalStack (via GitHub Student Pack).
+- API/Backend (`api/`): Azure Container Apps (GitHub Student Pack credit),
+  scaled to zero replicas when idle. `Dockerfile.api` is built and pushed to
+  GHCR automatically on every push (`.github/workflows/build-push-image.yml`);
+  Azure just pulls that image and runs it.
+- ML admin app (`app.py`, optional): local use only — see [DEPLOY.md](DEPLOY.md) if you want it hosted too.
 
 ## License
 

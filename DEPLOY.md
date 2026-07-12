@@ -28,34 +28,56 @@ see `.github/workflows/deploy-pages.yml` and "Wiring notes" in
 
 ## 2. `api/` → needs its own host (GitHub Pages is static-only)
 
-**DigitalOcean App Platform (recommended if you have GitHub Student Pack
-access)** — Render/Railway's free tiers spin down after ~15 min idle (first
-request after a quiet period takes 60-90s), and their free/cheapest tier's
-512MB RAM cap is not enough headroom for this app — confirmed live: `/predict`
-OOM-crashes on Render's 512MB tier every time (TensorFlow's own runtime
-overhead plus inference-time buffers routinely peaks at 600+MB). DigitalOcean
-App Platform's **1 GiB** tier (~$10/mo, still covered for years by the
-Student Pack's $200 credit) runs continuously with no spin-down and enough
-memory, for the same "connect GitHub repo, auto-deploy" simplicity as Render:
+**Azure Container Apps (what's actually deployed)** — chosen because its
+Consumption plan scales to **zero replicas** when idle, so a low-traffic demo
+costs nothing between visits, and it's covered by the GitHub Student Pack's
+Azure credit with no card required. `.github/workflows/build-push-image.yml`
+builds `Dockerfile.api` and pushes it to GHCR (free for a public repo) on
+every relevant push; Azure just pulls that public image and runs it — no
+Azure Container Registry needed, which has no free tier.
 
-1. Activate the DigitalOcean offer at <https://education.github.com/pack> if you haven't.
-2. DigitalOcean dashboard → **Apps** → **Create App** → connect this GitHub repo, branch `main`.
-3. It should detect `Dockerfile.api` automatically (or point it at that path explicitly).
-4. Pick the **Shared (Fixed)** plan at **1 GiB / 1 vCPU** (~$10/mo) — not the
-   512MB tier (same one DigitalOcean also offers at ~$5/mo), and not the
-   free/dev tier (that one sleeps too).
-5. Add the env vars below, deploy.
+1. Make the built image's GHCR package public (one-time): GitHub profile →
+   **Packages** → the package → **Package settings** → **Change visibility**.
+2. Azure Portal → **Container Apps** → **Create**. Image source: **Docker Hub
+   or other registries**, image `ghcr.io/<you>/<repo>:latest`, no registry
+   credentials needed (it's public).
+3. **Container** tab: **1 vCPU / 2 GiB** (TensorFlow's runtime overhead needs
+   more than the 512MB that OOM-crashed this app on Render's free tier — see
+   `docs/FINDINGS.md`).
+4. **Ingress** tab: enabled, accepting traffic from anywhere, target port `8000`.
+5. **Scale** tab: **min replicas 0, max replicas 1** — this is what keeps cost
+   near zero. A ping-based "keep it warm" workflow would defeat this by never
+   letting it idle down; this repo deliberately doesn't have one.
+6. Add the env vars below (as **Secrets**, not plain env vars, for anything
+   that's actually a credential), create.
+7. Cost Management + Billing → **Budgets** → set an alert well under your
+   credit as a backstop.
 
-**Render / Railway (free tier)** — same `Dockerfile.api`, no code changes needed, but expect the same OOM crash on `/predict` this project hit on Render's free tier unless the workload is lightened first (e.g. converting to TensorFlow Lite for a smaller runtime footprint). Cold-starts are the lesser problem here.
+The tradeoff: the first request after a period of no traffic pays a cold
+start (container boot + model load) before it responds — acceptable for a
+portfolio demo, not for something expecting steady traffic.
 
-Either way, set these env vars on the host:
+**Alternative, if you don't have Azure/Student Pack access — DigitalOcean App
+Platform**: no scale-to-zero, but no cold starts either; runs continuously for
+~$10/mo (1 GiB / 1 vCPU tier — the 512MB tier OOMs the same as Render's free
+tier does below). Connect this repo in the DigitalOcean dashboard, point it at
+`Dockerfile.api`, deploy.
+
+**Alternative — Render / Railway free tier**: same `Dockerfile.api`, no code
+changes needed, but expect the same OOM crash on `/predict` this project hit
+on Render's free tier unless the workload is lightened first (e.g. converting
+to TensorFlow Lite for a smaller runtime footprint).
+
+Whichever host you pick, set these env vars:
 ```bash
 CORS_ALLOW_ORIGINS=https://<you>.github.io   # your GitHub Pages origin
 MAX_UPLOAD_BYTES=8388608                      # optional, 8MB default
 ```
 
 Once it's live, set the `PLANTIFY_API_BASE` repository variable (see above)
-to the host's URL and trigger the Pages deploy — no code changes needed.
+to the host's URL, then manually re-run `deploy-pages.yml` (it only
+auto-triggers on `web/` changes, not on a variable update) so the live site
+picks up the new API address.
 
 ## 3. `app.py` (Streamlit) — internal tool, optional
 
@@ -70,10 +92,10 @@ access to that tooling:
    apps to whatever the latest Python is (3.14 as of this writing) —
    `tensorflow-cpu==2.15.0` has no wheel for anything newer than 3.11, so a
    default-version deploy fails immediately with a dependency resolution
-   error. `runtime.txt` (`python-3.11`) is also committed in the repo root
-   for this, but multiple 2026 reports say Community Cloud currently ignores
-   `runtime.txt` — the Advanced settings dropdown is the reliable one.
-   **Python version can't be changed after deploying** — picking wrong means
+   error. Multiple 2026 reports say Community Cloud currently ignores a
+   committed `runtime.txt` for this, so the Advanced settings dropdown is
+   the reliable way to pin it. **Python version can't be changed after
+   deploying** — picking wrong means
    deleting the app and redeploying from scratch, not just retrying.
 4. Deploy. It installs `requirements.txt` automatically.
 
