@@ -269,11 +269,18 @@ code {
   border-radius: 2px;
 }
 
-.nav-links .nav-cta {
+.nav-links .nav-cta,
+.nav-links a.nav-cta.active {
   padding: 9px 18px;
   border-radius: 999px;
   background: var(--forest);
   color: var(--paper);
+}
+
+.nav-links a.nav-cta.active::after {
+  /* The CTA pill's own background already signals "current page" --
+     the underline meant for plain text links doesn't apply here. */
+  content: none;
 }
 
 .nav-links .nav-cta:hover {
