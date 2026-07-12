@@ -86,9 +86,14 @@ _request_windows: Dict[str, List[float]] = {}
 
 
 def _client_id(request: Request) -> str:
+    # Take the LAST hop, not the first: reverse proxies (including Azure
+    # Container Apps' ingress) append the real peer IP to this header rather
+    # than replacing it, so the first entry is whatever the client itself
+    # claimed. Trusting it would let a client defeat per-IP rate limiting
+    # just by sending a different fake X-Forwarded-For on every request.
     forwarded_for = request.headers.get("x-forwarded-for", "")
     if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip()
+        return forwarded_for.rsplit(",", 1)[-1].strip()
     return request.client.host if request.client else "unknown"
 
 

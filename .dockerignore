@@ -12,3 +12,5 @@ samples
 data
 *.egg-info
 .streamlit/secrets.toml
+.env
+*.env
