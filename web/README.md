@@ -49,7 +49,7 @@ Three pages, each earning its place — no decorative filler:
 
 - `index.html` — landing page, pitches the ML capability
 - `identify.html` — the actual feature: upload a leaf photo, get a live prediction
-- `blog.html` — real technical content: how identification works, photo tips, the species list
+- `journal.html` — real technical content: how identification works, photo tips, the species list
 
 (Earlier drafts of this site had `login.html`/`signup.html`/`contact.html` —
 non-functional UI mockups inherited from the Bootstrap template. They were
