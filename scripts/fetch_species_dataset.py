@@ -49,6 +49,7 @@ NC_ND_LICENSE_PREFIXES = (
 )
 
 MAX_SIDE = 700
+MIN_SIDE = 400
 QUALITY = 85
 PAGE_SIZE = 100
 
@@ -89,11 +90,23 @@ def _search_media(
     """Page through GBIF occurrence search for `species`, collecting up to
     `want` permissively-licensed media entries. If `taxon_key` is given,
     searches by GBIF's resolved taxonKey instead of free-text scientificName
-    (see `_resolve_taxon_key`)."""
+    (see `_resolve_taxon_key`).
+
+    Restricted to basisOfRecord=PRESERVED_SPECIMEN (herbarium sheets --
+    pressed specimens typically photographed on a plain/light background) --
+    unlike HUMAN_OBSERVATION records (field photos: hands, foliage, habitat
+    clutter), these actually resemble the single-leaf training images in
+    data/, which is what the model is trained and evaluated against.
+    """
     found: list[dict] = []
     offset = 0
     while len(found) < want:
-        params = {"mediaType": "StillImage", "limit": PAGE_SIZE, "offset": offset}
+        params = {
+            "mediaType": "StillImage",
+            "basisOfRecord": "PRESERVED_SPECIMEN",
+            "limit": PAGE_SIZE,
+            "offset": offset,
+        }
         if taxon_key is not None:
             params["taxonKey"] = taxon_key
         else:
@@ -160,6 +173,23 @@ def _download_and_downsize(url: str, dest_path: str, timeout: int = 20) -> bool:
     if img is None:
         return False
     h, w = img.shape[:2]
+    # GBIF's multimedia metadata has no width/height field to filter on
+    # up front -- this is the earliest point resolution is known. Below
+    # MIN_SIDE the image is a thumbnail-grade derivative, not usable for
+    # training.
+    if min(h, w) < MIN_SIDE:
+        logger.warning("  skipping low-resolution image (%dx%d): %s", w, h, url)
+        return False
+    # basisOfRecord=PRESERVED_SPECIMEN filters the occurrence record, not the
+    # individual photo -- a specimen record can still carry attached
+    # in-the-field photos (habit shots, whole trees against the sky) taken by
+    # the collector alongside/instead of the actual specimen scan. Same
+    # near-white-background heuristic api/main.py uses to score a live
+    # upload's quality, applied here to reject those before they enter data/.
+    white_fraction = float((img > 200).all(2).mean())
+    if not (config.MIN_WHITE_BG <= white_fraction <= config.MAX_WHITE_BG):
+        logger.warning("  skipping non-plain-background image (white=%.2f): %s", white_fraction, url)
+        return False
     scale = MAX_SIDE / max(h, w)
     if scale < 1:
         img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
