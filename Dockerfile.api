@@ -3,6 +3,17 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# TF's default thread pools scale with detected CPU count, each reserving its
+# own buffer space -- on a memory-capped host (Render free tier: 512MB) that
+# overhead plus inference-time activation buffers is enough to OOM. Forcing
+# single-threaded ops trades some latency for a meaningfully smaller peak
+# memory footprint, set as env vars (not in Python) so they're honored before
+# TensorFlow's own init reads them at import time.
+ENV TF_CPP_MIN_LOG_LEVEL=3
+ENV TF_NUM_INTEROP_THREADS=1
+ENV TF_NUM_INTRAOP_THREADS=1
+ENV OMP_NUM_THREADS=1
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
