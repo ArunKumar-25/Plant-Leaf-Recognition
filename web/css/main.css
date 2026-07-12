@@ -46,11 +46,6 @@
   --shadow-soft: 0 12px 32px -18px rgba(30, 42, 28, 0.35);
 }
 
-/* Smooth cross-document transitions between pages, in browsers that support
-   it (Chrome/Edge 126+). No-op elsewhere — plain navigation, no JS needed. */
-@view-transition {
-  navigation: auto;
-}
 
 * {
   box-sizing: border-box;
