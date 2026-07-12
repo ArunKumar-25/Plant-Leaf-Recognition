@@ -185,6 +185,64 @@ def test_gate_wider_per_class_tolerance_still_catches_real_regression():
     assert "Quercus" in reason
 
 
+def test_gate_significance_test_accepts_one_flipped_image_with_counts():
+    # Same shape as the real Issue #18 rejection: 15 test images, one flip.
+    # With per_class_support counts available, this is no longer statistically
+    # distinguishable from noise (p > 0.05), so it should be accepted even
+    # under the default (narrower) per_class_tolerance.
+    baseline = {
+        "accuracy": 0.99,
+        "per_class": {"Acer": 1.0},
+        "per_class_support": {"Acer": {"correct": 15, "total": 15}},
+    }
+    new = {
+        "accuracy": 0.99,
+        "per_class": {"Acer": 14 / 15},
+        "per_class_support": {"Acer": {"correct": 14, "total": 15}},
+    }
+    accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01)
+    assert accept is True
+    assert reason == "accepted"
+
+
+def test_gate_significance_test_still_catches_real_regression():
+    baseline = {
+        "accuracy": 0.90,
+        "per_class": {"Quercus": 1.0},
+        "per_class_support": {"Quercus": {"correct": 30, "total": 30}},
+    }
+    new = {
+        "accuracy": 0.90,
+        "per_class": {"Quercus": 20 / 30},
+        "per_class_support": {"Quercus": {"correct": 20, "total": 30}},
+    }
+    accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01)
+    assert accept is False
+    assert "per_class_regression" in reason
+    assert "Quercus" in reason
+
+
+def test_gate_falls_back_to_flat_tolerance_without_support_counts():
+    # No per_class_support on either side -- old behavior, unchanged.
+    baseline = {"accuracy": 0.99, "per_class": {"Salix aurita": 1.0}}
+    new = {"accuracy": 0.99, "per_class": {"Salix aurita": 14 / 15}}
+    accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01)
+    assert accept is False
+    assert "per_class_regression" in reason
+
+
+def test_gate_falls_back_to_flat_tolerance_when_support_missing_for_one_side():
+    baseline = {
+        "accuracy": 0.99,
+        "per_class": {"Salix aurita": 1.0},
+        "per_class_support": {"Salix aurita": {"correct": 15, "total": 15}},
+    }
+    new = {"accuracy": 0.99, "per_class": {"Salix aurita": 14 / 15}}  # no support on this side
+    accept, reason = regression_gate.evaluate_gate(baseline, new, 0.01, per_class_tolerance=0.08)
+    assert accept is True
+    assert reason == "accepted"
+
+
 def test_gate_ignores_classes_missing_from_new_eval():
     baseline = {"accuracy": 0.90, "per_class": {"Acer": 0.95, "NewSpecies": 0.80}}
     new = {"accuracy": 0.90, "per_class": {"Acer": 0.96}}

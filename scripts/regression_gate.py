@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import sys
 
@@ -43,12 +44,31 @@ def _write_github_output(name: str, value: str) -> None:
         handle.write(f"{name}={value}\n")
 
 
+def _one_sided_regression_pvalue(base_correct: int, base_total: int, new_correct: int, new_total: int) -> float | None:
+    """One-sided two-proportion z-test p-value: probability of seeing a
+    recall drop this large (or larger) by sampling chance alone, if the
+    class's true recall hadn't actually changed. None if undefined (a zero
+    total, or zero pooled variance -- e.g. both sides at 100% or both at 0%,
+    where there's nothing to test)."""
+    if base_total <= 0 or new_total <= 0:
+        return None
+    p_base = base_correct / base_total
+    p_new = new_correct / new_total
+    p_pool = (base_correct + new_correct) / (base_total + new_total)
+    variance = p_pool * (1 - p_pool) * (1 / base_total + 1 / new_total)
+    if variance <= 0:
+        return None
+    z = (p_base - p_new) / math.sqrt(variance)
+    return 0.5 * math.erfc(z / math.sqrt(2))  # P(Z >= z), upper-tail
+
+
 def evaluate_gate(
     baseline: dict,
     new: dict,
     tolerance: float,
     new_species_min_recall: float = 0.60,
     per_class_tolerance: float | None = None,
+    significance: float = 0.05,
 ) -> tuple[bool, str]:
     """Pure function: returns (accept, reason). Exposed for unit testing."""
     if per_class_tolerance is None:
@@ -67,10 +87,36 @@ def evaluate_gate(
 
     baseline_per_class = baseline.get("per_class", {})
     new_per_class = new.get("per_class", {})
+    baseline_support = baseline.get("per_class_support", {})
+    new_support = new.get("per_class_support", {})
     for species, base_recall in baseline_per_class.items():
         new_recall = new_per_class.get(species)
         if new_recall is None:
             continue  # class not present in new eval (e.g. data churn) — not this gate's concern
+
+        base_counts = baseline_support.get(species)
+        new_counts = new_support.get(species)
+        if base_counts and new_counts:
+            # Prefer a significance test over counts when available: with
+            # ~15 test images/class, one flipped prediction swings recall by
+            # ~6.7% on pure sampling noise -- a flat percentage-point
+            # tolerance can't tell that apart from a real regression, but a
+            # two-proportion test can, and it scales with how much evidence
+            # actually exists per class instead of a fixed number for all.
+            p_value = _one_sided_regression_pvalue(
+                base_counts["correct"], base_counts["total"], new_counts["correct"], new_counts["total"]
+            )
+            if p_value is not None:
+                if p_value < significance:
+                    return False, (
+                        f"per_class_regression: {species} {new_recall:.4f} < {base_recall:.4f} "
+                        f"(p={p_value:.4f} < {significance}, n={base_counts['total']}+{new_counts['total']})"
+                    )
+                continue  # drop isn't statistically significant -- not a confirmed regression
+
+        # No usable counts for this class (older metrics files, or a caller
+        # that only provides ratios, e.g. unit tests) -- fall back to the
+        # flat tolerance as before.
         if new_recall < base_recall - per_class_tolerance:
             return False, (
                 f"per_class_regression: {species} {new_recall:.4f} < {base_recall:.4f} - {per_class_tolerance}"
@@ -116,6 +162,15 @@ def main() -> int:
         default=0.60,
         help="Absolute recall floor for any class present in --new but absent from --baseline",
     )
+    parser.add_argument(
+        "--significance",
+        type=float,
+        default=0.05,
+        help="P-value threshold for the per-class two-proportion regression test, used when both "
+        "metrics files carry per_class_support counts. Only rejects a class when the recall drop is "
+        "this statistically unlikely to be sampling noise -- falls back to --per-class-tolerance when "
+        "counts aren't available.",
+    )
     args = parser.parse_args()
 
     with open(args.baseline, encoding="utf-8") as handle:
@@ -124,7 +179,7 @@ def main() -> int:
         new = json.load(handle)
 
     accept, reason = evaluate_gate(
-        baseline, new, args.tolerance, args.new_species_min_recall, args.per_class_tolerance
+        baseline, new, args.tolerance, args.new_species_min_recall, args.per_class_tolerance, args.significance
     )
 
     baseline_acc = baseline.get("accuracy")

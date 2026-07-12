@@ -194,14 +194,22 @@ does. Nothing here ever touches `main`.
    `data/`, evaluate the result, and run the **regression gate**
    (`scripts/regression_gate.py`): accept only if aggregate accuracy is
    within `--tolerance` (1%) of baseline, no single existing class's recall
-   regressed by more than `--per-class-tolerance` (8%), and any
-   freshly-introduced class clears an absolute recall floor
-   (`NEW_SPECIES_MIN_RECALL`, default 0.60). Per-class tolerance is
-   deliberately wider than aggregate: with only ~15 test images per class, a
-   single flipped prediction swings that class's recall ~6.7% on its own —
-   a 1% tolerance there would reject on sampling noise almost every cycle,
-   especially once baseline sits at (or near) 100% with no slack to absorb
-   it.
+   has *significantly* regressed, and any freshly-introduced class clears an
+   absolute recall floor (`NEW_SPECIES_MIN_RECALL`, default 0.60).
+
+   Per-class regression uses a one-sided two-proportion significance test
+   (`--significance`, default p < 0.05) over each class's raw correct/total
+   counts (`per_class_support` in the metrics JSON) when both the baseline
+   and new eval have them, falling back to a flat `--per-class-tolerance`
+   (8%) otherwise. This exists because with only ~15 test images per class, a
+   single flipped prediction swings that class's raw recall ~6.7% on its own
+   — a flat tolerance can't tell that apart from a real regression no matter
+   how it's tuned, but a significance test can, since it accounts for how
+   much evidence actually exists for that class instead of using one fixed
+   number for all of them. (Confirmed live: the one-flipped-image-out-of-15
+   shape that used to reject every time — see Issue #18 — is no longer
+   statistically distinguishable from noise and is now accepted, while a
+   real multi-image regression at the same sample size is still caught.)
 3. Accepted → opens or updates **one pull request per calendar month**
    (`artifacts/`, `data/` — now including this week's merged staged
    additions — and the manifest, on an `auto-retrain/YYYY-MM` branch), body

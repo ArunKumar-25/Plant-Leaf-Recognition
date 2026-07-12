@@ -74,13 +74,27 @@ def main() -> int:
 
     accuracy = float((pred == y_test).mean())
     per_class = {}
+    per_class_support = {}
     for idx, species in enumerate(classes):
         mask = y_test == idx
-        if mask.sum() == 0:
+        total = int(mask.sum())
+        if total == 0:
             continue
-        per_class[species] = float((pred[mask] == idx).mean())
+        correct = int((pred[mask] == idx).sum())
+        per_class[species] = correct / total
+        # Raw counts alongside the ratio -- regression_gate.py uses these to
+        # test whether a recall drop is statistically significant rather than
+        # just comparing ratios, since ~15 test images/class means a single
+        # flipped prediction swings the ratio by ~6.7% on its own.
+        per_class_support[species] = {"correct": correct, "total": total}
 
-    metrics = {"accuracy": accuracy, "per_class": per_class, "n_test": int(len(y_test)), "classes": classes}
+    metrics = {
+        "accuracy": accuracy,
+        "per_class": per_class,
+        "per_class_support": per_class_support,
+        "n_test": int(len(y_test)),
+        "classes": classes,
+    }
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(metrics, handle, indent=2)
