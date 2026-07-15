@@ -2,7 +2,7 @@
 # tensorflow-cpu + opencv-headless keep the image small and server-friendly.
 tensorflow-cpu==2.15.0
 numpy==1.26.4
-streamlit==1.59.0
+streamlit==1.59.2
 opencv-python-headless==4.9.0.80
 scikit-image==0.25.2
 scikit-learn==1.7.2
