@@ -2,7 +2,7 @@
 # tensorflow-cpu + opencv-headless keep the image small and server-friendly.
 tensorflow-cpu==2.15.0
 numpy==1.26.4
-streamlit==1.60.0
+streamlit==1.61.1
 opencv-python-headless==4.9.0.80
 scikit-image==0.25.2
 scikit-learn==1.7.2
@@ -11,6 +11,6 @@ Pillow==12.3.0
 matplotlib==3.10.9
 requests==2.34.2
 fastapi==0.141.1
-uvicorn==0.52.1
+uvicorn==0.52.3
 python-multipart==0.0.32
 pytest==9.1.1
