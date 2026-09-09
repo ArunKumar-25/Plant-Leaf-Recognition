@@ -1,5 +1,5 @@
 # Dev-only tooling (linting/formatting/testing). Not needed to run the app.
-isort==8.0.1
+isort==9.0.1
 black==26.5.1
 httpx==0.28.1
 pip-audit==2.10.1
